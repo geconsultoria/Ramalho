@@ -633,6 +633,10 @@ tbody tr:last-child td { border-bottom: none; }
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
           Produtos <span class="badge" id="productBadge" style="margin-left:auto;">0</span>
         </a>
+        <a data-tab="titulos" onclick="switchTab('titulos')">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 7h10M7 12h10M7 17h6"/></svg>
+          Títulos <span class="badge" id="titulosBadge" style="margin-left:auto;">0</span>
+        </a>
       </div>
     </div>
 
@@ -983,6 +987,19 @@ async function sbSave() {
     toast('Falha ao sincronizar Pedidos de Venda com o servidor: ' + e.message, 'error');
   }
 
+  // Salva títulos cadastrados
+  try {
+    const titulos = (state.titulosCadastrados || []).map(t => ({
+      id: t.id, nome: t.nome || '',
+      _deleted: t._deleted || false, updated_at: new Date().toISOString()
+    }));
+    if (titulos.length) await SB.upsert('titulos', titulos);
+  } catch(e) {
+    erros.push('titulos');
+    console.warn('Supabase save error [titulos]:', e.message);
+    toast('Falha ao sincronizar Títulos com o servidor: ' + e.message, 'error');
+  }
+
   if (erros.length === 0) {
     console.log('Supabase: dados salvos com sucesso');
   } else {
@@ -996,14 +1013,17 @@ async function sbLoad() {
     let fornecedoresErro = '';
     let contasFalhou = false;
     let pedidosFalhou = false;
-    const [produtos, clientes, precos, atribuicoes, fornecedores, contas, pedidos] = await Promise.all([
+    let titulosFalhou = false;
+    let titulosErro = '';
+    const [produtos, clientes, precos, atribuicoes, fornecedores, contas, pedidos, titulos] = await Promise.all([
       SB.get('produtos'),
       SB.get('clientes'),
       SB.get('precos'),
       SB.get('atribuicoes'),
       SB.get('fornecedores').catch(e => { fornecedoresFalhou = true; fornecedoresErro = e.message; console.warn('Supabase GET fornecedores falhou:', e.message); return []; }),
       SB.get('contas_a_pagar').catch(e => { contasFalhou = true; console.warn('Supabase GET contas_a_pagar falhou:', e.message); return []; }),
-      SB.get('pedidos_venda').catch(e => { pedidosFalhou = true; console.warn('Supabase GET pedidos_venda falhou:', e.message); return []; })
+      SB.get('pedidos_venda').catch(e => { pedidosFalhou = true; console.warn('Supabase GET pedidos_venda falhou:', e.message); return []; }),
+      SB.get('titulos').catch(e => { titulosFalhou = true; titulosErro = e.message; console.warn('Supabase GET titulos falhou:', e.message); return []; })
     ]);
 
     if (fornecedoresFalhou) {
@@ -1015,8 +1035,11 @@ async function sbLoad() {
     if (pedidosFalhou) {
       toast('Não foi possível buscar Pedidos de Venda no servidor. Mantendo os dados salvos neste dispositivo.', 'error');
     }
+    if (titulosFalhou) {
+      console.warn('Cadastro de Títulos indisponível no servidor (' + titulosErro + '). Usando lista automática enquanto isso.');
+    }
 
-    if (!clientes.length && !produtos.length && !fornecedores.length && !contas.length && !pedidos.length && !contasFalhou && !fornecedoresFalhou && !pedidosFalhou) return false;
+    if (!clientes.length && !produtos.length && !fornecedores.length && !contas.length && !pedidos.length && !titulos.length && !contasFalhou && !fornecedoresFalhou && !pedidosFalhou) return false;
 
     state.products = produtos.map(p => ({
       id: p.id, nome: p.nome, tipo: p.tipo, grupo: p.grupo,
@@ -1064,6 +1087,9 @@ async function sbLoad() {
         _deleted: p._deleted
       }));
     }
+    if (!titulosFalhou) {
+      state.titulosCadastrados = titulos.map(t => ({ id: t.id, nome: t.nome, _deleted: t._deleted }));
+    }
 
     migrateClients(state.clients);
     console.log('Supabase: ' + clientes.length + ' clientes, ' + produtos.length + ' produtos, ' + precos.length + ' precos, ' + fornecedores.length + ' fornecedores, ' + contas.length + ' contas carregados');
@@ -1085,9 +1111,10 @@ let state = {
   fornecedores: [],
   contasAPagar: [],
   pedidosVenda: [],
+  titulosCadastrados: [],
   currentTab: 'dashboard',
-  pagination: { clients: 1, products: 1, contas: 1, fornecedores: 1, pedidos: 1 },
-  search: { clients: '', products: '', contas: '', fornecedores: '', pedidos: '' },
+  pagination: { clients: 1, products: 1, contas: 1, fornecedores: 1, pedidos: 1, titulos: 1 },
+  search: { clients: '', products: '', contas: '', fornecedores: '', pedidos: '', titulos: '' },
   selectedClient: null,
   priceLetterFilter: '',
   productFilter: { grupo: '' },
@@ -1100,6 +1127,7 @@ function getActiveClients() { return state.clients.filter(function(c) { return !
 function getActiveProducts() { return state.products.filter(function(p) { return !p._deleted; }); }
 function getActiveFornecedores() { return state.fornecedores.filter(function(f) { return !f._deleted; }); }
 function getActiveContas() { return state.contasAPagar.filter(function(c) { return !c._deleted; }); }
+function getActiveTitulos() { return (state.titulosCadastrados || []).filter(function(t) { return !t._deleted; }); }
 function getActivePedidoItens() { return state.pedidosVenda.filter(function(p) { return !p._deleted; }); }
 function getPedidosAgrupados() {
   // Agrupa os itens (linhas) por pedido_id, retornando um registro por pedido
@@ -2091,6 +2119,7 @@ function render() {
   document.getElementById('clientBadge').textContent = getActiveClients().length;
   document.getElementById('productBadge').textContent = getActiveProducts().length;
   if (document.getElementById('fornecedorBadge')) document.getElementById('fornecedorBadge').textContent = getActiveFornecedores().length;
+  if (document.getElementById('titulosBadge')) document.getElementById('titulosBadge').textContent = getActiveTitulos().length;
   if (document.getElementById('contaBadge')) document.getElementById('contaBadge').textContent = getActiveContas().length;
   if (document.getElementById('pedidoBadge')) document.getElementById('pedidoBadge').textContent = getPedidosAgrupados().length;
 
@@ -2102,6 +2131,7 @@ function render() {
   else if (state.currentTab === 'products') renderProducts(content, actions);
   else if (state.currentTab === 'prices') renderPrices(content, actions);
   else if (state.currentTab === 'fornecedores') renderFornecedores(content, actions);
+  else if (state.currentTab === 'titulos') renderTitulos(content, actions);
   else if (state.currentTab === 'contas') renderContas(content, actions);
   else if (state.currentTab === 'pedidos') renderPedidos(content, actions);
 }
@@ -3730,6 +3760,107 @@ function deleteFornecedor(id) {
 }
 
 // ============================================================
+// TÍTULOS (cadastro de sugestões usadas em Contas a Pagar)
+// ============================================================
+function renderTitulos(container, actions) {
+  actions.innerHTML = `<button class="btn btn-primary" onclick="showTituloForm()">&#43; Novo Título</button>`;
+
+  const search = state.search.titulos;
+  const page = state.pagination.titulos;
+  const perPage = 15;
+
+  let filtered = getActiveTitulos().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  if (search) {
+    const s = search.toLowerCase();
+    filtered = filtered.filter(t => (t.nome || '').toLowerCase().includes(s));
+  }
+  const total = filtered.length;
+  const pages = Math.ceil(total / perPage) || 1;
+  const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+        <div class="search-box">
+          <span class="icon">&#128270;</span>
+          <input type="text" id="stitulo" placeholder="Buscar título..." value="${search}" oninput="state.search.titulos=this.value;state.pagination.titulos=1;render();setTimeout(function(){var e=document.getElementById('stitulo');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},10)">
+        </div>
+        <span style="font-size:13px;color:var(--gray-500);">${total} t&iacute;tulo${total !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div style="padding:12px 16px;font-size:12px;color:var(--gray-500);border-bottom:1px solid var(--gray-100);">Esses são os títulos sugeridos ao lançar uma nova conta em Contas a Pagar. Exclua os que foram cadastrados por engano — isso não apaga nenhum lançamento já feito com esse título, só tira ele da lista de sugestões.</div>
+        ${total === 0 ? `<div class="empty-state"><div class="icon">&#128221;</div><h4>Nenhum título cadastrado</h4><p>Cadastre o primeiro título para começar.</p></div>` : `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Título</th><th style="text-align:right;">Ações</th></tr></thead>
+            <tbody>
+              ${paginated.map(t => `
+              <tr>
+                <td><strong>${escapeHtml(t.nome) || '-'}</strong></td>
+                <td style="text-align:right;">
+                  <button class="btn-icon edit" data-action="edit-titulo" data-id="${t.id}" title="Editar">&#9998;</button>
+                  <button class="btn-icon delete" data-action="delete-titulo" data-id="${t.id}" title="Excluir">&#128465;</button>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`}
+      </div>
+      ${pages > 1 ? `<div class="card-footer"><div class="pagination"><span>Página ${page} de ${pages}</span><div class="pages">${Array.from({length: pages}, (_, i) => `<button class="${i+1===page?'active':''}" onclick="state.pagination.titulos=${i+1};render()">${i+1}</button>`).join('')}</div></div></div>` : ''}
+    </div>
+  `;
+}
+
+function showTituloForm(id) {
+  const titulo = id ? state.titulosCadastrados.find(t => t.id === id) : null;
+  const isEdit = !!titulo;
+  openModal(`
+    <div class="modal-header">
+      <h3>${isEdit ? 'Editar' : 'Novo'} Título</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <form onsubmit="saveTitulo(event, '${id || ''}')">
+      <div class="modal-body">
+        <div class="form-group" style="gap:3px;">
+          <label>Nome do título</label>
+          <input type="text" id="ti_nome" value="${titulo ? (titulo.nome || '').replace(/"/g, '&quot;') : ''}" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  `);
+  setTimeout(function() { var el = document.getElementById('ti_nome'); if (el) el.focus(); }, 50);
+}
+
+function saveTitulo(e, id) {
+  e.preventDefault();
+  const nome = document.getElementById('ti_nome').value.trim().toUpperCase();
+  if (!nome) { toast('Informe o nome do título', 'error'); return; }
+
+  if (id) {
+    const idx = state.titulosCadastrados.findIndex(t => t.id === id);
+    if (idx >= 0) { state.titulosCadastrados[idx].nome = nome; }
+    toast('Título atualizado!');
+  } else {
+    if (getActiveTitulos().some(t => (t.nome || '').toUpperCase() === nome)) { toast('Esse título já está cadastrado', 'error'); return; }
+    state.titulosCadastrados.push({ id: uid(), nome });
+    toast('Título cadastrado!');
+  }
+  saveState(); updateSyncStatus('success', 'Dados salvos'); closeModal(); render();
+}
+
+function deleteTitulo(id) {
+  showConfirmModal('Tem certeza que deseja excluir este título da lista de sugestões? Lançamentos já feitos com esse título não são afetados.', function() {
+    state.titulosCadastrados.forEach(function(t) { if (t.id === id) t._deleted = true; });
+    saveState(); updateSyncStatus('success', 'Dados salvos'); render();
+    toast('Título excluído');
+  });
+}
+
+// ============================================================
 // CONTAS A PAGAR
 // ============================================================
 const statusColors = { 'PAGO': 'badge-success', 'PAGO_PARCIALMENTE': 'badge-info', 'A_VENCER': 'badge-info', 'VENCIDO': 'badge-danger', 'CANCELADO': 'badge-secondary' };
@@ -3929,6 +4060,14 @@ function renderContas(container, actions) {
 
   let filtered = getActiveContas();
 
+  // Lista de sugestões de título: vem do cadastro em "Cadastros > Títulos",
+  // com um reforço extra dos títulos já usados em contas (garante que nada
+  // suma da lista mesmo antes da migração/sincronização inicial rodar).
+  const titulosCadastradosNomes = getActiveTitulos().map(t => (t.nome || '').trim()).filter(Boolean);
+  const titulosUsados = getActiveContas().map(c => (c.titulo || '').trim()).filter(Boolean);
+  const titulosSugestoes = Array.from(new Set([...titulosCadastradosNomes, ...titulosUsados])).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+
   if (search) {
     const s = search.toLowerCase();
     filtered = filtered.filter(c => {
@@ -4037,19 +4176,7 @@ function renderContas(container, actions) {
       <div id="newContaRow"></div>
 
       <datalist id="titulos_list">
-        <option value="PRO-LABORE">
-        <option value="ALUGUEL">
-        <option value="ENERGIA ELÉTRICA">
-        <option value="ÁGUA">
-        <option value="TELEFONE">
-        <option value="INTERNET">
-        <option value="MATERIAL DE ESCRITÓRIO">
-        <option value="MANUTENÇÃO">
-        <option value="SEGURO">
-        <option value="IMPOSTO">
-        <option value="TAXA">
-        <option value="SERVIÇO">
-        <option value="FORNECIMENTO">
+        ${titulosSugestoes.map(t => '<option value="' + t.replace(/"/g, '&quot;') + '">').join('')}
       </datalist>
 
       <div class="grid-contas-wrap">
@@ -4255,6 +4382,7 @@ function exportAllBackup() {
     precos: state.prices || {},
     atribuicoes: state.assigned || {},
     fornecedores: getActiveFornecedores(),
+    titulos: getActiveTitulos(),
     contas_a_pagar: getActiveContas(),
     pedidos_venda: (state.pedidosVenda || []).filter(function(p) { return !p._deleted; })
   };
@@ -4262,6 +4390,7 @@ function exportAllBackup() {
   var resumo = 'Produtos: ' + backup.produtos.length +
     ' | Clientes: ' + backup.clientes.length +
     ' | Fornecedores: ' + backup.fornecedores.length +
+    ' | Títulos: ' + backup.titulos.length +
     ' | Contas a Pagar: ' + backup.contas_a_pagar.length +
     ' | Pedidos de Venda: ' + backup.pedidos_venda.length;
 
@@ -4946,6 +5075,23 @@ function savePedidoStatus(event, pedidoId, newStatus) {
   toast('Status alterado para "' + (statusLabels[newStatus] || newStatus) + '"');
 }
 
+// Adiciona um novo campo de título na aba "Nova Conta", permitindo lançar
+// várias contas de uma vez (mesmo fornecedor/vencimento/valor, títulos
+// diferentes) com um clique no "+". Cada título extra tem um botão "-" para
+// remover, caso adicionado por engano.
+function addTituloInput() {
+  var wrap = document.getElementById('tituloListWrap');
+  if (!wrap) return;
+  var row = document.createElement('div');
+  row.className = 'titulo-row';
+  row.style.cssText = 'display:flex;gap:4px;align-items:center;margin-bottom:4px;';
+  row.innerHTML = '<input type="text" class="new_ct_titulo_item" list="titulos_list" placeholder="Selecione ou digite" style="text-transform:uppercase;font-weight:600;flex:1;min-width:0;">' +
+    '<button type="button" class="btn-icon" onclick="this.closest(\'.titulo-row\').remove()" title="Remover este t&iacute;tulo" style="background:var(--danger-bg,#fef2f2);color:var(--danger,#ef4444);font-size:12px;width:22px;height:22px;border:none;cursor:pointer;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">&#8722;</button>';
+  wrap.appendChild(row);
+  var inp = row.querySelector('input');
+  if (inp) inp.focus();
+}
+
 function addNewContaRow() {
   const el = document.getElementById('newContaRow');
   if (el && el.innerHTML.trim()) { el.innerHTML = ''; return; }
@@ -4970,7 +5116,14 @@ function addNewContaRow() {
         </thead>
         <tbody>
           <tr class="row-new">
-            <td class="col-titulo"><input type="text" id="new_ct_titulo" list="titulos_list" placeholder="Selecione ou digite" style="text-transform:uppercase;font-weight:600;"></td>
+            <td class="col-titulo">
+              <div id="tituloListWrap">
+                <div class="titulo-row" style="display:flex;gap:4px;align-items:center;margin-bottom:4px;">
+                  <input type="text" id="new_ct_titulo" class="new_ct_titulo_item" list="titulos_list" placeholder="Selecione ou digite" style="text-transform:uppercase;font-weight:600;flex:1;min-width:0;">
+                  <button type="button" class="btn-icon" onclick="addTituloInput()" title="Adicionar outro título" style="background:var(--success-bg);color:var(--success);font-size:12px;width:22px;height:22px;border:none;cursor:pointer;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">&#43;</button>
+                </div>
+              </div>
+            </td>
             <td class="col-forn">
               <div class="forn-cell">
                 <select id="new_ct_fornecedor">${fornOpts}</select>
@@ -5191,12 +5344,14 @@ function computeRecurrenceDates(startStr, freq, weekdays, occurrences, endStr) {
 }
 
 function saveNewConta() {
-  const titulo = document.getElementById('new_ct_titulo').value.trim();
+  const titulos = Array.from(document.querySelectorAll('.new_ct_titulo_item'))
+    .map(function(inp) { return inp.value.trim(); })
+    .filter(Boolean);
   const fornecedor_id = document.getElementById('new_ct_fornecedor').value;
   const data_vencimento = document.getElementById('new_ct_vencimento').value;
   const valor_bruto = parseNumBR(document.getElementById('new_ct_bruto').value);
 
-  if (!titulo) { toast('Informe o título', 'error'); document.getElementById('new_ct_titulo').focus(); return; }
+  if (titulos.length === 0) { toast('Informe ao menos um título', 'error'); document.getElementById('new_ct_titulo').focus(); return; }
   if (!fornecedor_id) { toast('Selecione o fornecedor', 'error'); document.getElementById('new_ct_fornecedor').focus(); return; }
   if (!data_vencimento) { toast('Informe a data de vencimento', 'error'); document.getElementById('new_ct_vencimento').focus(); return; }
   if (!valor_bruto || valor_bruto <= 0) { toast('Informe o valor bruto', 'error'); document.getElementById('new_ct_bruto').focus(); return; }
@@ -5224,24 +5379,28 @@ function saveNewConta() {
     if (generated.length) dates = generated;
   }
 
-  dates.forEach(function(dv, idx) {
-    const dpForThis = idx === 0 ? pagamento : '';
-    const status = calcStatus(dv, dpForThis);
-    state.contasAPagar.push({
-      id: uid(),
-      titulo,
-      fornecedor_id,
-      data_vencimento: dv,
-      data_pagamento: (idx === 0 && status === 'PAGO' && !dpForThis) ? new Date().toISOString().slice(0, 10) : dpForThis,
-      valor_bruto,
-      valor_pago: status === 'PAGO' ? valor_bruto : 0,
-      status,
-      observacao
+  let totalCriadas = 0;
+  titulos.forEach(function(titulo) {
+    dates.forEach(function(dv, idx) {
+      const dpForThis = idx === 0 ? pagamento : '';
+      const status = calcStatus(dv, dpForThis);
+      state.contasAPagar.push({
+        id: uid(),
+        titulo,
+        fornecedor_id,
+        data_vencimento: dv,
+        data_pagamento: (idx === 0 && status === 'PAGO' && !dpForThis) ? new Date().toISOString().slice(0, 10) : dpForThis,
+        valor_bruto,
+        valor_pago: status === 'PAGO' ? valor_bruto : 0,
+        status,
+        observacao
+      });
+      totalCriadas++;
     });
   });
 
   saveState();
-  toast(dates.length > 1 ? (dates.length + ' contas cadastradas (recorrência aplicada)!') : 'Conta cadastrada!');
+  toast(totalCriadas > 1 ? (totalCriadas + ' contas cadastradas!') : 'Conta cadastrada!');
   render();
 }
 
@@ -5904,6 +6063,18 @@ async function postLoginInit() {
     console.log('Fornecedores padrão cadastrados: ' + fornDefault.length);
   }
 
+  // Migração única: se o cadastro de Títulos ainda está vazio, popula com a
+  // lista padrão + todos os títulos já usados em contas existentes, para não
+  // perder nenhuma sugestão que já estava em uso antes dessa tela existir.
+  if ((state.titulosCadastrados || []).length === 0) {
+    var titulosPadraoSeed = ['PRO-LABORE', 'ALUGUEL', 'ENERGIA ELÉTRICA', 'ÁGUA', 'TELEFONE', 'INTERNET', 'MATERIAL DE ESCRITÓRIO', 'MANUTENÇÃO', 'SEGURO', 'IMPOSTO', 'TAXA', 'SERVIÇO', 'FORNECIMENTO'];
+    var titulosJaUsados = getActiveContas().map(function(c) { return (c.titulo || '').trim(); }).filter(Boolean);
+    var nomesUnicos = Array.from(new Set([...titulosPadraoSeed, ...titulosJaUsados]));
+    state.titulosCadastrados = nomesUnicos.map(function(nome) { return { id: uid(), nome: nome }; });
+    saveState();
+    console.log('Cadastro de Títulos inicializado com ' + nomesUnicos.length + ' título(s).');
+  }
+
   var hasData = state.products.length > 0 || state.clients.length > 0;
   console.log('Init: produtos=' + state.products.length + ', clientes=' + state.clients.length + ', precos=' + Object.keys(state.prices).length);
 
@@ -5954,6 +6125,8 @@ document.addEventListener('click', function(e) {
   else if (action === 'edit-product') showProductForm(id);
   else if (action === 'delete-fornecedor') deleteFornecedor(id);
   else if (action === 'edit-fornecedor') showFornecedorForm(id);
+  else if (action === 'delete-titulo') deleteTitulo(id);
+  else if (action === 'edit-titulo') showTituloForm(id);
   else if (action === 'delete-conta') deleteConta(id);
 });
 
