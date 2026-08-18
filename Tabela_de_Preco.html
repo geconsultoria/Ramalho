@@ -633,10 +633,6 @@ tbody tr:last-child td { border-bottom: none; }
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
           Produtos <span class="badge" id="productBadge" style="margin-left:auto;">0</span>
         </a>
-        <a data-tab="titulos" onclick="switchTab('titulos')">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 7h10M7 12h10M7 17h6"/></svg>
-          Títulos <span class="badge" id="titulosBadge" style="margin-left:auto;">0</span>
-        </a>
       </div>
     </div>
 
@@ -674,6 +670,14 @@ tbody tr:last-child td { border-bottom: none; }
         <a data-tab="pedidos" onclick="switchTab('pedidos')">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
           Pedido de Venda <span class="badge" id="pedidoBadge" style="margin-left:auto;">0</span>
+        </a>
+        <a data-tab="recebiveis" onclick="switchTab('recebiveis')">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Contas a Receber <span class="badge" id="recebivelBadge" style="margin-left:auto;">0</span>
+        </a>
+        <a data-tab="cheques" onclick="switchTab('cheques')">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h1m4 0h1m-9 4h16a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          Controle de Cheques <span class="badge" id="chequeBadge" style="margin-left:auto;">0</span>
         </a>
       </div>
     </div>
@@ -987,17 +991,55 @@ async function sbSave() {
     toast('Falha ao sincronizar Pedidos de Venda com o servidor: ' + e.message, 'error');
   }
 
-  // Salva títulos cadastrados
+  // Salva contas a receber
   try {
-    const titulos = (state.titulosCadastrados || []).map(t => ({
-      id: t.id, nome: t.nome || '',
-      _deleted: t._deleted || false, updated_at: new Date().toISOString()
+    const receb = state.contasAReceber.map(c => ({
+      id: c.id, tipo: c.tipo || 'NORMAL', pedido_id: c.pedido_id || '', cliente_id: c.cliente_id || '',
+      titulo: c.titulo || '', data_vencimento: c.data_vencimento || '',
+      data_recebimento: c.data_recebimento || '', valor_bruto: c.valor_bruto || 0,
+      valor_pago: c.valor_pago || 0, valor_utilizado: c.valor_utilizado || 0,
+      forma_recebimento: c.forma_recebimento || '',
+      status: c.status || 'A_VENCER', observacao: c.observacao || '',
+      _deleted: c._deleted || false, updated_at: new Date().toISOString()
     }));
-    if (titulos.length) await SB.upsert('titulos', titulos);
+    if (receb.length) await SB.upsert('contas_a_receber', receb);
   } catch(e) {
-    erros.push('titulos');
-    console.warn('Supabase save error [titulos]:', e.message);
-    toast('Falha ao sincronizar Títulos com o servidor: ' + e.message, 'error');
+    erros.push('contas_a_receber');
+    console.warn('Supabase save error [contas_a_receber]:', e.message);
+    toast('Falha ao sincronizar Contas a Receber com o servidor: ' + e.message, 'error');
+  }
+
+  // Salva cheques (controle de cheques recebidos)
+  try {
+    const cheques = state.cheques.map(c => ({
+      id: c.id, conta_receber_id: c.conta_receber_id || '', cliente_id: c.cliente_id || '',
+      numero_cheque: c.numero_cheque || '', banco: c.banco || '', agencia: c.agencia || '',
+      conta: c.conta || '', emitente: c.emitente || '', cpf_cnpj_emitente: c.cpf_cnpj_emitente || '',
+      valor: c.valor || 0, data_recebimento: c.data_recebimento || '', data_compensacao: c.data_compensacao || '',
+      status: c.status || 'EM_CARTEIRA', observacao: c.observacao || '',
+      _deleted: c._deleted || false, updated_at: new Date().toISOString()
+    }));
+    if (cheques.length) await SB.upsert('cheques', cheques);
+  } catch(e) {
+    erros.push('cheques');
+    console.warn('Supabase save error [cheques]:', e.message);
+    toast('Falha ao sincronizar Controle de Cheques com o servidor: ' + e.message, 'error');
+  }
+
+  // Salva operações de desconto/cessão de recebíveis com FIDC
+  try {
+    const fidc = (state.operacoesFidc || []).map(o => ({
+      id: o.id, fidc_nome: o.fidc_nome || '', data_operacao: o.data_operacao || '',
+      contas_ids: JSON.stringify(o.contas_ids || []), valor_face: o.valor_face || 0,
+      taxa_desconto: o.taxa_desconto || 0, valor_desconto: o.valor_desconto || 0,
+      valor_liquido: o.valor_liquido || 0, conta_recebimento: o.conta_recebimento || '',
+      status: o.status || 'ATIVA', observacao: o.observacao || '',
+      _deleted: o._deleted || false, updated_at: new Date().toISOString()
+    }));
+    if (fidc.length) await SB.upsert('operacoes_fidc', fidc);
+  } catch(e) {
+    erros.push('operacoes_fidc');
+    console.warn('Supabase save error [operacoes_fidc]:', e.message);
   }
 
   if (erros.length === 0) {
@@ -1013,9 +1055,10 @@ async function sbLoad() {
     let fornecedoresErro = '';
     let contasFalhou = false;
     let pedidosFalhou = false;
-    let titulosFalhou = false;
-    let titulosErro = '';
-    const [produtos, clientes, precos, atribuicoes, fornecedores, contas, pedidos, titulos] = await Promise.all([
+    let recebFalhou = false;
+    let chequesFalhou = false;
+    let fidcFalhou = false;
+    const [produtos, clientes, precos, atribuicoes, fornecedores, contas, pedidos, recebiveis, cheques, fidcOps] = await Promise.all([
       SB.get('produtos'),
       SB.get('clientes'),
       SB.get('precos'),
@@ -1023,7 +1066,9 @@ async function sbLoad() {
       SB.get('fornecedores').catch(e => { fornecedoresFalhou = true; fornecedoresErro = e.message; console.warn('Supabase GET fornecedores falhou:', e.message); return []; }),
       SB.get('contas_a_pagar').catch(e => { contasFalhou = true; console.warn('Supabase GET contas_a_pagar falhou:', e.message); return []; }),
       SB.get('pedidos_venda').catch(e => { pedidosFalhou = true; console.warn('Supabase GET pedidos_venda falhou:', e.message); return []; }),
-      SB.get('titulos').catch(e => { titulosFalhou = true; titulosErro = e.message; console.warn('Supabase GET titulos falhou:', e.message); return []; })
+      SB.get('contas_a_receber').catch(e => { recebFalhou = true; console.warn('Supabase GET contas_a_receber falhou:', e.message); return []; }),
+      SB.get('cheques').catch(e => { chequesFalhou = true; console.warn('Supabase GET cheques falhou:', e.message); return []; }),
+      SB.get('operacoes_fidc').catch(e => { fidcFalhou = true; console.warn('Supabase GET operacoes_fidc falhou:', e.message); return []; })
     ]);
 
     if (fornecedoresFalhou) {
@@ -1035,11 +1080,14 @@ async function sbLoad() {
     if (pedidosFalhou) {
       toast('Não foi possível buscar Pedidos de Venda no servidor. Mantendo os dados salvos neste dispositivo.', 'error');
     }
-    if (titulosFalhou) {
-      console.warn('Cadastro de Títulos indisponível no servidor (' + titulosErro + '). Usando lista automática enquanto isso.');
+    if (recebFalhou) {
+      console.warn('Não foi possível buscar Contas a Receber no servidor (tabela pode não existir ainda). Mantendo os dados salvos neste dispositivo.');
+    }
+    if (chequesFalhou) {
+      console.warn('Não foi possível buscar Controle de Cheques no servidor (tabela pode não existir ainda). Mantendo os dados salvos neste dispositivo.');
     }
 
-    if (!clientes.length && !produtos.length && !fornecedores.length && !contas.length && !pedidos.length && !titulos.length && !contasFalhou && !fornecedoresFalhou && !pedidosFalhou) return false;
+    if (!clientes.length && !produtos.length && !fornecedores.length && !contas.length && !pedidos.length && !contasFalhou && !fornecedoresFalhou && !pedidosFalhou) return false;
 
     state.products = produtos.map(p => ({
       id: p.id, nome: p.nome, tipo: p.tipo, grupo: p.grupo,
@@ -1087,8 +1135,35 @@ async function sbLoad() {
         _deleted: p._deleted
       }));
     }
-    if (!titulosFalhou) {
-      state.titulosCadastrados = titulos.map(t => ({ id: t.id, nome: t.nome, _deleted: t._deleted }));
+    if (!recebFalhou) {
+      state.contasAReceber = recebiveis.map(c => ({
+        id: c.id, tipo: c.tipo || 'NORMAL', pedido_id: c.pedido_id, cliente_id: c.cliente_id,
+        titulo: c.titulo, data_vencimento: c.data_vencimento, data_recebimento: c.data_recebimento,
+        valor_bruto: c.valor_bruto, valor_pago: c.valor_pago || 0, valor_utilizado: c.valor_utilizado || 0,
+        forma_recebimento: c.forma_recebimento || '', status: c.status, observacao: c.observacao,
+        _deleted: c._deleted
+      }));
+    }
+    if (!chequesFalhou) {
+      state.cheques = cheques.map(c => ({
+        id: c.id, conta_receber_id: c.conta_receber_id, cliente_id: c.cliente_id,
+        numero_cheque: c.numero_cheque, banco: c.banco, agencia: c.agencia, conta: c.conta,
+        emitente: c.emitente, cpf_cnpj_emitente: c.cpf_cnpj_emitente, valor: c.valor,
+        data_recebimento: c.data_recebimento, data_compensacao: c.data_compensacao,
+        status: c.status, observacao: c.observacao, _deleted: c._deleted
+      }));
+    }
+    if (!fidcFalhou) {
+      state.operacoesFidc = fidcOps.map(o => {
+        let contasIds = [];
+        try { contasIds = typeof o.contas_ids === 'string' ? JSON.parse(o.contas_ids) : (o.contas_ids || []); } catch(e) { contasIds = []; }
+        return {
+          id: o.id, fidc_nome: o.fidc_nome, data_operacao: o.data_operacao, contas_ids: contasIds,
+          valor_face: o.valor_face, taxa_desconto: o.taxa_desconto, valor_desconto: o.valor_desconto,
+          valor_liquido: o.valor_liquido, conta_recebimento: o.conta_recebimento,
+          status: o.status, observacao: o.observacao, _deleted: o._deleted
+        };
+      });
     }
 
     migrateClients(state.clients);
@@ -1111,24 +1186,72 @@ let state = {
   fornecedores: [],
   contasAPagar: [],
   pedidosVenda: [],
-  titulosCadastrados: [],
+  contasAReceber: [],
+  cheques: [],
+  operacoesFidc: [],
   currentTab: 'dashboard',
-  pagination: { clients: 1, products: 1, contas: 1, fornecedores: 1, pedidos: 1, titulos: 1 },
-  search: { clients: '', products: '', contas: '', fornecedores: '', pedidos: '', titulos: '' },
+  pagination: { clients: 1, products: 1, contas: 1, fornecedores: 1, pedidos: 1, recebiveis: 1, cheques: 1 },
+  search: { clients: '', products: '', contas: '', fornecedores: '', pedidos: '', recebiveis: '', cheques: '' },
   selectedClient: null,
   priceLetterFilter: '',
   productFilter: { grupo: '' },
   contaStatusFilter: '',
   contaDateStart: '',
-  contaDateEnd: ''
+  contaDateEnd: '',
+  recebivelStatusFilter: '',
+  recebivelDateStart: '',
+  recebivelDateEnd: '',
+  chequeStatusFilter: ''
 };
 
 function getActiveClients() { return state.clients.filter(function(c) { return !c._deleted; }); }
 function getActiveProducts() { return state.products.filter(function(p) { return !p._deleted; }); }
 function getActiveFornecedores() { return state.fornecedores.filter(function(f) { return !f._deleted; }); }
 function getActiveContas() { return state.contasAPagar.filter(function(c) { return !c._deleted; }); }
-function getActiveTitulos() { return (state.titulosCadastrados || []).filter(function(t) { return !t._deleted; }); }
 function getActivePedidoItens() { return state.pedidosVenda.filter(function(p) { return !p._deleted; }); }
+function getActiveRecebiveis() { return state.contasAReceber.filter(function(c) { return !c._deleted; }); }
+function getActiveCheques() { return state.cheques.filter(function(c) { return !c._deleted; }); }
+function getActiveOperacoesFidc() { return (state.operacoesFidc || []).filter(function(o) { return !o._deleted; }); }
+
+// Saldo de crédito (adiantamentos) ainda não utilizado de um cliente.
+function getSaldoAdiantamento(clienteId) {
+  return getActiveRecebiveis()
+    .filter(function(c) { return c.tipo === 'ADIANTAMENTO' && c.cliente_id === clienteId && c.status !== 'CANCELADO'; })
+    .reduce(function(s, c) { return s + Math.max(0, (parseFloat(c.valor_bruto) || 0) - (parseFloat(c.valor_utilizado) || 0)); }, 0);
+}
+
+// Consome o crédito de adiantamento de um cliente (do mais antigo para o mais
+// novo) até o valor solicitado. Retorna o valor efetivamente aplicado.
+function aplicarAdiantamento(clienteId, valorDesejado) {
+  var restante = parseFloat(valorDesejado) || 0;
+  if (restante <= 0) return 0;
+  var aplicado = 0;
+  var adiantamentos = getActiveRecebiveis()
+    .filter(function(c) { return c.tipo === 'ADIANTAMENTO' && c.cliente_id === clienteId && c.status !== 'CANCELADO'; })
+    .sort(function(a, b) { return (a.data_recebimento || '').localeCompare(b.data_recebimento || ''); });
+  adiantamentos.forEach(function(c) {
+    if (restante <= 0) return;
+    var disponivel = Math.max(0, (parseFloat(c.valor_bruto) || 0) - (parseFloat(c.valor_utilizado) || 0));
+    if (disponivel <= 0) return;
+    var usar = Math.min(disponivel, restante);
+    c.valor_utilizado = (parseFloat(c.valor_utilizado) || 0) + usar;
+    restante -= usar;
+    aplicado += usar;
+  });
+  return aplicado;
+}
+
+function recalcAllRecebiveisStatus() {
+  var mudou = false;
+  (state.contasAReceber || []).forEach(function(c) {
+    if (c._deleted) return;
+    if (c.tipo === 'ADIANTAMENTO') return;
+    if (c.status === 'RECEBIDO' || c.status === 'RECEBIDO_PARCIALMENTE' || c.status === 'CANCELADO' || c.status === 'DESCONTADO_FIDC' || c.status === 'LIQUIDADO_FIDC') return;
+    var novo = calcStatus(c.data_vencimento, c.data_recebimento);
+    if (novo !== c.status) { c.status = novo; mudou = true; }
+  });
+  return mudou;
+}
 function getPedidosAgrupados() {
   // Agrupa os itens (linhas) por pedido_id, retornando um registro por pedido
   var itens = getActivePedidoItens();
@@ -1232,6 +1355,9 @@ function _applyState(saved) {
   state.fornecedores = saved.fornecedores || [];
   state.contasAPagar = saved.contasAPagar || [];
   state.pedidosVenda = saved.pedidosVenda || [];
+  state.contasAReceber = saved.contasAReceber || [];
+  state.cheques = saved.cheques || [];
+  state.operacoesFidc = saved.operacoesFidc || [];
   migrateClients(state.clients);
 }
 
@@ -1252,15 +1378,17 @@ async function loadState() {
       // com base na data de hoje, corrigindo títulos que venceram desde o
       // último acesso e ficariam presos como "A Vencer".
       var statusMudou = recalcAllContasStatus();
+      var statusMudouReceb = recalcAllRecebiveisStatus();
       // Atualiza localStorage com os dados atuais (Supabase + eventuais campos preservados do cache)
-      var data = { clients: state.clients, products: state.products, prices: state.prices, assigned: state.assigned, fornecedores: state.fornecedores, contasAPagar: state.contasAPagar, pedidosVenda: state.pedidosVenda };
+      var data = { clients: state.clients, products: state.products, prices: state.prices, assigned: state.assigned, fornecedores: state.fornecedores, contasAPagar: state.contasAPagar, pedidosVenda: state.pedidosVenda, contasAReceber: state.contasAReceber, cheques: state.cheques, operacoesFidc: state.operacoesFidc };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      if (statusMudou) sbSave().catch(function(e) { console.warn('sbSave (recalc status):', e); });
+      if (statusMudou || statusMudouReceb) sbSave().catch(function(e) { console.warn('sbSave (recalc status):', e); });
       return;
     }
     // Fallback: localStorage (offline ou Supabase indisponível)
     if (rawInicial) {
       recalcAllContasStatus();
+      recalcAllRecebiveisStatus();
       console.log('localStorage (offline): ' + Object.keys(state.prices).length + ' precos');
       return;
     }
@@ -1269,6 +1397,7 @@ async function loadState() {
     if (saved) {
       _applyState(saved);
       recalcAllContasStatus();
+      recalcAllRecebiveisStatus();
       console.log('IndexedDB: ' + Object.keys(state.prices).length + ' precos');
       return;
     }
@@ -1298,9 +1427,12 @@ function saveState() {
       assigned: state.assigned,
       fornecedores: state.fornecedores,
       contasAPagar: state.contasAPagar,
-      pedidosVenda: state.pedidosVenda
+      pedidosVenda: state.pedidosVenda,
+      contasAReceber: state.contasAReceber,
+      cheques: state.cheques,
+      operacoesFidc: state.operacoesFidc
     };
-    console.log('Salvando:', Object.keys(state.prices).length + ' precos, ' + state.contasAPagar.length + ' contas, ' + state.pedidosVenda.length + ' itens de pedidos');
+    console.log('Salvando:', Object.keys(state.prices).length + ' precos, ' + state.contasAPagar.length + ' contas, ' + state.pedidosVenda.length + ' itens de pedidos, ' + state.contasAReceber.length + ' recebiveis, ' + state.cheques.length + ' cheques, ' + (state.operacoesFidc||[]).length + ' op. FIDC');
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     _dbSave(data);
     _cookieSave(data);
@@ -2114,14 +2246,15 @@ async function uploadToSheet() {
 // RENDER
 // ============================================================
 function render() {
-  const titles = { dashboard: 'Dashboard', clients: 'Clientes', products: 'Produtos', prices: 'Tabela de Preços', fornecedores: 'Fornecedores', contas: 'Contas a Pagar', pedidos: 'Pedido de Venda' };
+  const titles = { dashboard: 'Dashboard', clients: 'Clientes', products: 'Produtos', prices: 'Tabela de Preços', fornecedores: 'Fornecedores', contas: 'Contas a Pagar', pedidos: 'Pedido de Venda', recebiveis: 'Contas a Receber', cheques: 'Controle de Cheques' };
   document.getElementById('pageTitle').textContent = titles[state.currentTab] || 'Dashboard';
   document.getElementById('clientBadge').textContent = getActiveClients().length;
   document.getElementById('productBadge').textContent = getActiveProducts().length;
   if (document.getElementById('fornecedorBadge')) document.getElementById('fornecedorBadge').textContent = getActiveFornecedores().length;
-  if (document.getElementById('titulosBadge')) document.getElementById('titulosBadge').textContent = getActiveTitulos().length;
   if (document.getElementById('contaBadge')) document.getElementById('contaBadge').textContent = getActiveContas().length;
   if (document.getElementById('pedidoBadge')) document.getElementById('pedidoBadge').textContent = getPedidosAgrupados().length;
+  if (document.getElementById('recebivelBadge')) document.getElementById('recebivelBadge').textContent = getActiveRecebiveis().filter(function(c){return c.status==='A_VENCER'||c.status==='VENCIDO';}).length;
+  if (document.getElementById('chequeBadge')) document.getElementById('chequeBadge').textContent = getActiveCheques().filter(function(c){return c.status==='EM_CARTEIRA'||c.status==='DEPOSITADO';}).length;
 
   const actions = document.getElementById('topbarActions');
   const content = document.getElementById('mainContent');
@@ -2131,9 +2264,10 @@ function render() {
   else if (state.currentTab === 'products') renderProducts(content, actions);
   else if (state.currentTab === 'prices') renderPrices(content, actions);
   else if (state.currentTab === 'fornecedores') renderFornecedores(content, actions);
-  else if (state.currentTab === 'titulos') renderTitulos(content, actions);
   else if (state.currentTab === 'contas') renderContas(content, actions);
   else if (state.currentTab === 'pedidos') renderPedidos(content, actions);
+  else if (state.currentTab === 'recebiveis') renderContasReceber(content, actions);
+  else if (state.currentTab === 'cheques') renderControleCheques(content, actions);
 }
 
 // ===== DASHBOARD =====
@@ -3760,107 +3894,6 @@ function deleteFornecedor(id) {
 }
 
 // ============================================================
-// TÍTULOS (cadastro de sugestões usadas em Contas a Pagar)
-// ============================================================
-function renderTitulos(container, actions) {
-  actions.innerHTML = `<button class="btn btn-primary" onclick="showTituloForm()">&#43; Novo Título</button>`;
-
-  const search = state.search.titulos;
-  const page = state.pagination.titulos;
-  const perPage = 15;
-
-  let filtered = getActiveTitulos().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
-  if (search) {
-    const s = search.toLowerCase();
-    filtered = filtered.filter(t => (t.nome || '').toLowerCase().includes(s));
-  }
-  const total = filtered.length;
-  const pages = Math.ceil(total / perPage) || 1;
-  const paginated = filtered.slice((page - 1) * perPage, page * perPage);
-
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-        <div class="search-box">
-          <span class="icon">&#128270;</span>
-          <input type="text" id="stitulo" placeholder="Buscar título..." value="${search}" oninput="state.search.titulos=this.value;state.pagination.titulos=1;render();setTimeout(function(){var e=document.getElementById('stitulo');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},10)">
-        </div>
-        <span style="font-size:13px;color:var(--gray-500);">${total} t&iacute;tulo${total !== 1 ? 's' : ''}</span>
-      </div>
-      <div class="card-body" style="padding:0;">
-        <div style="padding:12px 16px;font-size:12px;color:var(--gray-500);border-bottom:1px solid var(--gray-100);">Esses são os títulos sugeridos ao lançar uma nova conta em Contas a Pagar. Exclua os que foram cadastrados por engano — isso não apaga nenhum lançamento já feito com esse título, só tira ele da lista de sugestões.</div>
-        ${total === 0 ? `<div class="empty-state"><div class="icon">&#128221;</div><h4>Nenhum título cadastrado</h4><p>Cadastre o primeiro título para começar.</p></div>` : `
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Título</th><th style="text-align:right;">Ações</th></tr></thead>
-            <tbody>
-              ${paginated.map(t => `
-              <tr>
-                <td><strong>${escapeHtml(t.nome) || '-'}</strong></td>
-                <td style="text-align:right;">
-                  <button class="btn-icon edit" data-action="edit-titulo" data-id="${t.id}" title="Editar">&#9998;</button>
-                  <button class="btn-icon delete" data-action="delete-titulo" data-id="${t.id}" title="Excluir">&#128465;</button>
-                </td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`}
-      </div>
-      ${pages > 1 ? `<div class="card-footer"><div class="pagination"><span>Página ${page} de ${pages}</span><div class="pages">${Array.from({length: pages}, (_, i) => `<button class="${i+1===page?'active':''}" onclick="state.pagination.titulos=${i+1};render()">${i+1}</button>`).join('')}</div></div></div>` : ''}
-    </div>
-  `;
-}
-
-function showTituloForm(id) {
-  const titulo = id ? state.titulosCadastrados.find(t => t.id === id) : null;
-  const isEdit = !!titulo;
-  openModal(`
-    <div class="modal-header">
-      <h3>${isEdit ? 'Editar' : 'Novo'} Título</h3>
-      <button class="modal-close" onclick="closeModal()">&times;</button>
-    </div>
-    <form onsubmit="saveTitulo(event, '${id || ''}')">
-      <div class="modal-body">
-        <div class="form-group" style="gap:3px;">
-          <label>Nome do título</label>
-          <input type="text" id="ti_nome" value="${titulo ? (titulo.nome || '').replace(/"/g, '&quot;') : ''}" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar</button>
-      </div>
-    </form>
-  `);
-  setTimeout(function() { var el = document.getElementById('ti_nome'); if (el) el.focus(); }, 50);
-}
-
-function saveTitulo(e, id) {
-  e.preventDefault();
-  const nome = document.getElementById('ti_nome').value.trim().toUpperCase();
-  if (!nome) { toast('Informe o nome do título', 'error'); return; }
-
-  if (id) {
-    const idx = state.titulosCadastrados.findIndex(t => t.id === id);
-    if (idx >= 0) { state.titulosCadastrados[idx].nome = nome; }
-    toast('Título atualizado!');
-  } else {
-    if (getActiveTitulos().some(t => (t.nome || '').toUpperCase() === nome)) { toast('Esse título já está cadastrado', 'error'); return; }
-    state.titulosCadastrados.push({ id: uid(), nome });
-    toast('Título cadastrado!');
-  }
-  saveState(); updateSyncStatus('success', 'Dados salvos'); closeModal(); render();
-}
-
-function deleteTitulo(id) {
-  showConfirmModal('Tem certeza que deseja excluir este título da lista de sugestões? Lançamentos já feitos com esse título não são afetados.', function() {
-    state.titulosCadastrados.forEach(function(t) { if (t.id === id) t._deleted = true; });
-    saveState(); updateSyncStatus('success', 'Dados salvos'); render();
-    toast('Título excluído');
-  });
-}
-
-// ============================================================
 // CONTAS A PAGAR
 // ============================================================
 const statusColors = { 'PAGO': 'badge-success', 'PAGO_PARCIALMENTE': 'badge-info', 'A_VENCER': 'badge-info', 'VENCIDO': 'badge-danger', 'CANCELADO': 'badge-secondary' };
@@ -4060,14 +4093,6 @@ function renderContas(container, actions) {
 
   let filtered = getActiveContas();
 
-  // Lista de sugestões de título: vem do cadastro em "Cadastros > Títulos",
-  // com um reforço extra dos títulos já usados em contas (garante que nada
-  // suma da lista mesmo antes da migração/sincronização inicial rodar).
-  const titulosCadastradosNomes = getActiveTitulos().map(t => (t.nome || '').trim()).filter(Boolean);
-  const titulosUsados = getActiveContas().map(c => (c.titulo || '').trim()).filter(Boolean);
-  const titulosSugestoes = Array.from(new Set([...titulosCadastradosNomes, ...titulosUsados])).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-
-
   if (search) {
     const s = search.toLowerCase();
     filtered = filtered.filter(c => {
@@ -4176,7 +4201,19 @@ function renderContas(container, actions) {
       <div id="newContaRow"></div>
 
       <datalist id="titulos_list">
-        ${titulosSugestoes.map(t => '<option value="' + t.replace(/"/g, '&quot;') + '">').join('')}
+        <option value="PRO-LABORE">
+        <option value="ALUGUEL">
+        <option value="ENERGIA ELÉTRICA">
+        <option value="ÁGUA">
+        <option value="TELEFONE">
+        <option value="INTERNET">
+        <option value="MATERIAL DE ESCRITÓRIO">
+        <option value="MANUTENÇÃO">
+        <option value="SEGURO">
+        <option value="IMPOSTO">
+        <option value="TAXA">
+        <option value="SERVIÇO">
+        <option value="FORNECIMENTO">
       </datalist>
 
       <div class="grid-contas-wrap">
@@ -4382,17 +4419,21 @@ function exportAllBackup() {
     precos: state.prices || {},
     atribuicoes: state.assigned || {},
     fornecedores: getActiveFornecedores(),
-    titulos: getActiveTitulos(),
     contas_a_pagar: getActiveContas(),
-    pedidos_venda: (state.pedidosVenda || []).filter(function(p) { return !p._deleted; })
+    pedidos_venda: (state.pedidosVenda || []).filter(function(p) { return !p._deleted; }),
+    contas_a_receber: getActiveRecebiveis(),
+    cheques: getActiveCheques(),
+    operacoes_fidc: getActiveOperacoesFidc()
   };
 
   var resumo = 'Produtos: ' + backup.produtos.length +
     ' | Clientes: ' + backup.clientes.length +
     ' | Fornecedores: ' + backup.fornecedores.length +
-    ' | Títulos: ' + backup.titulos.length +
     ' | Contas a Pagar: ' + backup.contas_a_pagar.length +
-    ' | Pedidos de Venda: ' + backup.pedidos_venda.length;
+    ' | Pedidos de Venda: ' + backup.pedidos_venda.length +
+    ' | Contas a Receber: ' + backup.contas_a_receber.length +
+    ' | Cheques: ' + backup.cheques.length +
+    ' | Operações FIDC: ' + backup.operacoes_fidc.length;
 
   var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
   var url = URL.createObjectURL(blob);
@@ -4729,7 +4770,7 @@ function renderPedidos(container, actions) {
                   <td class="pd-num">${formatBRL(it.valor_unitario)}</td>
                   <td class="pd-num">${formatBRL(it.valor_total)}</td>
                   <td class="col-status">${i === 0 ? '<span class="badge ' + statusBadge + '">' + statusLabel + '</span>' + (p.data_status ? '<div style="font-size:10px;color:var(--gray-400);margin-top:2px;">' + formatDateBR(p.data_status) + '</div>' : '') : ''}</td>
-                  <td class="col-acoes">${i === 0 ? '<div class="dropdown-wrap"><button class="dropdown-btn" onclick="toggleDropdown(\'psd_' + p.pedido_id + '\')" title="Ações">&#8943;</button><div class="dropdown-menu" id="psd_' + p.pedido_id + '"><button class="dropdown-item" onclick="showPedidoStatusForm(\'' + p.pedido_id + '\',\'PENDENTE\')"><span class="dot" style="background:var(--gray-400);"></span> Pendente</button><button class="dropdown-item" onclick="showPedidoStatusForm(\'' + p.pedido_id + '\',\'CONCLUIDO\')"><span class="dot" style="background:var(--success);"></span> Conclu&iacute;do</button><button class="dropdown-item" onclick="showPedidoStatusForm(\'' + p.pedido_id + '\',\'PARCIAL\')"><span class="dot" style="background:var(--warning);"></span> Parcialmente</button><button class="dropdown-item" onclick="showPedidoStatusForm(\'' + p.pedido_id + '\',\'CANCELADO\')"><span class="dot" style="background:var(--danger);"></span> Cancelado</button><div style="border-top:1px solid var(--gray-200);margin:4px 0;"></div><button class="dropdown-item" onclick="openPedidoModal(\'' + p.pedido_id + '\')">&#9998; Editar</button><button class="dropdown-item" onclick="deletePedido(\'' + p.pedido_id + '\')" style="color:var(--danger);">&#128465; Excluir</button></div></div>' : ''}</td>
+                  <td class="col-acoes">${i === 0 ? '<div class="dropdown-wrap"><button class="dropdown-btn" onclick="toggleDropdown(\'psd_' + p.pedido_id + '\')" title="Ações">&#8943;</button><div class="dropdown-menu" id="psd_' + p.pedido_id + '"><button class="dropdown-item" onclick="showPedidoStatusForm(\'' + p.pedido_id + '\',\'PENDENTE\')"><span class="dot" style="background:var(--gray-400);"></span> Pendente</button><button class="dropdown-item" onclick="showPedidoStatusForm(\'' + p.pedido_id + '\',\'CONCLUIDO\')"><span class="dot" style="background:var(--success);"></span> Conclu&iacute;do</button><button class="dropdown-item" onclick="showPedidoStatusForm(\'' + p.pedido_id + '\',\'PARCIAL\')"><span class="dot" style="background:var(--warning);"></span> Parcialmente</button><button class="dropdown-item" onclick="showPedidoStatusForm(\'' + p.pedido_id + '\',\'CANCELADO\')"><span class="dot" style="background:var(--danger);"></span> Cancelado</button><div style="border-top:1px solid var(--gray-200);margin:4px 0;"></div>' + (getActiveRecebiveis().some(function(c){return c.pedido_id===p.pedido_id;}) ? '<button class="dropdown-item" onclick="switchTab(\'recebiveis\');state.search.recebiveis=\'' + (p.numero_pedido||'').replace(/'/g,"") + '\';render();">&#128179; Ver Contas a Receber</button>' : '<button class="dropdown-item" onclick="gerarRecebiveisManual(\'' + p.pedido_id + '\')">&#128179; Gerar Contas a Receber</button>') + '<div style="border-top:1px solid var(--gray-200);margin:4px 0;"></div><button class="dropdown-item" onclick="openPedidoModal(\'' + p.pedido_id + '\')">&#9998; Editar</button><button class="dropdown-item" onclick="deletePedido(\'' + p.pedido_id + '\')" style="color:var(--danger);">&#128465; Excluir</button></div></div>' : ''}</td>
                 </tr>`;
               }).join('');
             }).join('')}
@@ -4806,6 +4847,40 @@ function openPedidoModal(pedidoId) {
           Nenhum produto adicionado. Clique em <strong>&#43; Adicionar Produto</strong> para come&ccedil;ar.
         </div>
       </div>
+
+      ${!isEdit ? `
+      <div style="margin-top:20px;padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);">
+        <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128179; Condição de Pagamento &mdash; gera automaticamente as Contas a Receber</label>
+        <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:12px;">
+          <div class="form-group" style="gap:4px;">
+            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Forma de Recebimento</label>
+            <select id="pd_forma_receb" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;background:white;">
+              <option value="DINHEIRO">Dinheiro</option>
+              <option value="PIX" selected>Pix</option>
+              <option value="BOLETO">Boleto</option>
+              <option value="CARTAO">Cartão</option>
+              <option value="CHEQUE">Cheque</option>
+              <option value="TRANSFERENCIA">Transferência/TED</option>
+            </select>
+          </div>
+          <div class="form-group" style="gap:4px;">
+            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Nº de Parcelas</label>
+            <input type="number" min="1" max="36" id="pd_parcelas" value="1" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
+          </div>
+          <div class="form-group" style="gap:4px;">
+            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">1º Vencimento</label>
+            <input type="date" id="pd_primeiro_vencimento" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
+          </div>
+          <div class="form-group" style="gap:4px;">
+            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Intervalo (dias)</label>
+            <input type="number" min="1" id="pd_intervalo_parcelas" value="30" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Ao salvar, o sistema lança automaticamente os títulos correspondentes em <strong>Contas a Receber</strong>.</div>
+      </div>` : `
+      <div style="margin-top:16px;padding:10px 14px;background:var(--primary-bg);border-radius:var(--radius-xs);font-size:12px;color:var(--primary-dark);">
+        &#8505; Este pedido já possui Contas a Receber vinculadas (se houver). Para ajustar os títulos financeiros, use a tela <strong>Contas a Receber</strong>.
+      </div>`}
     </div>
     <div class="modal-footer" style="border-top:1px solid var(--gray-200);background:var(--gray-50);padding:14px 24px;">
       <div style="flex:1;font-size:14px;color:var(--gray-700);">Total: <strong id="pd_valor_total" style="font-size:22px;color:var(--primary);">R$ 0,00</strong></div>
@@ -4974,10 +5049,111 @@ function savePedidoModal() {
     });
   });
 
+  let msgReceb = '';
+  if (!pedidoId) {
+    // Novo pedido: gera automaticamente as Contas a Receber conforme a condição de pagamento informada.
+    const valorPedidoTotal = itensValidos.reduce(function(s, it) { return s + ((parseFloat(it.qtd) || 0) * (parseFloat(it.valor_unitario) || 0)); }, 0);
+    const formaReceb = (document.getElementById('pd_forma_receb') || {}).value || 'PIX';
+    const numParcelas = Math.max(1, parseInt((document.getElementById('pd_parcelas') || {}).value, 10) || 1);
+    const primeiroVenc = (document.getElementById('pd_primeiro_vencimento') || {}).value || data_pedido;
+    const intervalo = Math.max(1, parseInt((document.getElementById('pd_intervalo_parcelas') || {}).value, 10) || 30);
+    gerarRecebiveisDoPedido(pid, cliente_id, numero_pedido, valorPedidoTotal, formaReceb, numParcelas, primeiroVenc, intervalo);
+    msgReceb = ' e lançado em Contas a Receber';
+  }
+
   saveState();
   closePedidoModal();
   render();
-  toast(pedidoId ? 'Pedido atualizado!' : 'Pedido cadastrado com ' + itensValidos.length + ' produto' + (itensValidos.length > 1 ? 's' : '') + '!');
+  toast(pedidoId ? 'Pedido atualizado!' : 'Pedido cadastrado com ' + itensValidos.length + ' produto' + (itensValidos.length > 1 ? 's' : '') + msgReceb + '!');
+}
+
+// Gera N parcelas em Contas a Receber para um pedido de venda recém-criado.
+function gerarRecebiveisDoPedido(pedidoId, clienteId, numeroPedido, valorTotal, forma, numParcelas, primeiroVencimento, intervaloDias) {
+  if (!valorTotal || valorTotal <= 0) return;
+  const valorParcela = Math.floor((valorTotal / numParcelas) * 100) / 100;
+  let somaParcelas = 0;
+  for (let i = 0; i < numParcelas; i++) {
+    const isUltima = i === numParcelas - 1;
+    const valor = isUltima ? Math.round((valorTotal - somaParcelas) * 100) / 100 : valorParcela;
+    somaParcelas += valor;
+    const dataBase = primeiroVencimento ? new Date(primeiroVencimento + 'T00:00:00') : new Date();
+    dataBase.setDate(dataBase.getDate() + (intervaloDias * i));
+    const vencimento = dataBase.getFullYear() + '-' + String(dataBase.getMonth() + 1).padStart(2, '0') + '-' + String(dataBase.getDate()).padStart(2, '0');
+    state.contasAReceber.push({
+      id: uid(),
+      tipo: 'NORMAL',
+      pedido_id: pedidoId,
+      cliente_id: clienteId,
+      titulo: 'PEDIDO ' + (numeroPedido || '') + (numParcelas > 1 ? ' - PARCELA ' + (i + 1) + '/' + numParcelas : ''),
+      data_vencimento: vencimento,
+      data_recebimento: '',
+      valor_bruto: valor,
+      valor_pago: 0,
+      valor_utilizado: 0,
+      forma_recebimento: forma,
+      status: calcStatus(vencimento, ''),
+      observacao: ''
+    });
+  }
+}
+
+// Gera (ou avisa se já existirem) os recebíveis de um pedido antigo que foi
+// cadastrado antes desta funcionalidade existir.
+function gerarRecebiveisManual(pedidoId) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  const jaExiste = getActiveRecebiveis().some(function(c) { return c.pedido_id === pedidoId; });
+  if (jaExiste) { toast('Este pedido já possui Contas a Receber vinculadas.', 'error'); return; }
+  const pedido = getPedidosAgrupados().find(function(p) { return p.pedido_id === pedidoId; });
+  if (!pedido) return;
+  openModal(`
+    <div class="modal-header">
+      <h3>Gerar Contas a Receber</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <form onsubmit="confirmGerarRecebiveisManual(event, '${pedidoId}')">
+      <div class="modal-body">
+        <div style="background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--gray-600);">
+          Pedido <strong>${pedido.numero_pedido || ''}</strong> &mdash; Valor: <strong>${formatBRL(pedido.valor_pedido)}</strong>
+        </div>
+        <div class="form-grid" style="gap:10px;">
+          <div>
+            <div class="form-group" style="gap:3px;"><label>Forma de Recebimento</label>
+              <select id="gr_forma" style="width:100%;">
+                <option value="DINHEIRO">Dinheiro</option>
+                <option value="PIX" selected>Pix</option>
+                <option value="BOLETO">Boleto</option>
+                <option value="CARTAO">Cartão</option>
+                <option value="CHEQUE">Cheque</option>
+                <option value="TRANSFERENCIA">Transferência/TED</option>
+              </select>
+            </div>
+          </div>
+          <div><div class="form-group" style="gap:3px;"><label>Nº de Parcelas</label><input type="number" min="1" max="36" id="gr_parcelas" value="1" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>1º Vencimento *</label><input type="date" id="gr_venc" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Intervalo (dias)</label><input type="number" min="1" id="gr_intervalo" value="30" style="width:100%;"></div></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Gerar</button>
+      </div>
+    </form>
+  `);
+}
+
+function confirmGerarRecebiveisManual(event, pedidoId) {
+  event.preventDefault();
+  const pedido = getPedidosAgrupados().find(function(p) { return p.pedido_id === pedidoId; });
+  if (!pedido) return;
+  const forma = document.getElementById('gr_forma').value;
+  const parcelas = Math.max(1, parseInt(document.getElementById('gr_parcelas').value, 10) || 1);
+  const venc = document.getElementById('gr_venc').value;
+  const intervalo = Math.max(1, parseInt(document.getElementById('gr_intervalo').value, 10) || 30);
+  gerarRecebiveisDoPedido(pedidoId, pedido.cliente_id, pedido.numero_pedido, pedido.valor_pedido, forma, parcelas, venc, intervalo);
+  saveState();
+  closeModal();
+  render();
+  toast('Contas a Receber geradas com sucesso!');
 }
 
 function deletePedido(pedidoId) {
@@ -5075,23 +5251,6 @@ function savePedidoStatus(event, pedidoId, newStatus) {
   toast('Status alterado para "' + (statusLabels[newStatus] || newStatus) + '"');
 }
 
-// Adiciona um novo campo de título na aba "Nova Conta", permitindo lançar
-// várias contas de uma vez (mesmo fornecedor/vencimento/valor, títulos
-// diferentes) com um clique no "+". Cada título extra tem um botão "-" para
-// remover, caso adicionado por engano.
-function addTituloInput() {
-  var wrap = document.getElementById('tituloListWrap');
-  if (!wrap) return;
-  var row = document.createElement('div');
-  row.className = 'titulo-row';
-  row.style.cssText = 'display:flex;gap:4px;align-items:center;margin-bottom:4px;';
-  row.innerHTML = '<input type="text" class="new_ct_titulo_item" list="titulos_list" placeholder="Selecione ou digite" style="text-transform:uppercase;font-weight:600;flex:1;min-width:0;">' +
-    '<button type="button" class="btn-icon" onclick="this.closest(\'.titulo-row\').remove()" title="Remover este t&iacute;tulo" style="background:var(--danger-bg,#fef2f2);color:var(--danger,#ef4444);font-size:12px;width:22px;height:22px;border:none;cursor:pointer;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">&#8722;</button>';
-  wrap.appendChild(row);
-  var inp = row.querySelector('input');
-  if (inp) inp.focus();
-}
-
 function addNewContaRow() {
   const el = document.getElementById('newContaRow');
   if (el && el.innerHTML.trim()) { el.innerHTML = ''; return; }
@@ -5116,14 +5275,7 @@ function addNewContaRow() {
         </thead>
         <tbody>
           <tr class="row-new">
-            <td class="col-titulo">
-              <div id="tituloListWrap">
-                <div class="titulo-row" style="display:flex;gap:4px;align-items:center;margin-bottom:4px;">
-                  <input type="text" id="new_ct_titulo" class="new_ct_titulo_item" list="titulos_list" placeholder="Selecione ou digite" style="text-transform:uppercase;font-weight:600;flex:1;min-width:0;">
-                  <button type="button" class="btn-icon" onclick="addTituloInput()" title="Adicionar outro título" style="background:var(--success-bg);color:var(--success);font-size:12px;width:22px;height:22px;border:none;cursor:pointer;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">&#43;</button>
-                </div>
-              </div>
-            </td>
+            <td class="col-titulo"><input type="text" id="new_ct_titulo" list="titulos_list" placeholder="Selecione ou digite" style="text-transform:uppercase;font-weight:600;"></td>
             <td class="col-forn">
               <div class="forn-cell">
                 <select id="new_ct_fornecedor">${fornOpts}</select>
@@ -5344,14 +5496,12 @@ function computeRecurrenceDates(startStr, freq, weekdays, occurrences, endStr) {
 }
 
 function saveNewConta() {
-  const titulos = Array.from(document.querySelectorAll('.new_ct_titulo_item'))
-    .map(function(inp) { return inp.value.trim(); })
-    .filter(Boolean);
+  const titulo = document.getElementById('new_ct_titulo').value.trim();
   const fornecedor_id = document.getElementById('new_ct_fornecedor').value;
   const data_vencimento = document.getElementById('new_ct_vencimento').value;
   const valor_bruto = parseNumBR(document.getElementById('new_ct_bruto').value);
 
-  if (titulos.length === 0) { toast('Informe ao menos um título', 'error'); document.getElementById('new_ct_titulo').focus(); return; }
+  if (!titulo) { toast('Informe o título', 'error'); document.getElementById('new_ct_titulo').focus(); return; }
   if (!fornecedor_id) { toast('Selecione o fornecedor', 'error'); document.getElementById('new_ct_fornecedor').focus(); return; }
   if (!data_vencimento) { toast('Informe a data de vencimento', 'error'); document.getElementById('new_ct_vencimento').focus(); return; }
   if (!valor_bruto || valor_bruto <= 0) { toast('Informe o valor bruto', 'error'); document.getElementById('new_ct_bruto').focus(); return; }
@@ -5379,28 +5529,24 @@ function saveNewConta() {
     if (generated.length) dates = generated;
   }
 
-  let totalCriadas = 0;
-  titulos.forEach(function(titulo) {
-    dates.forEach(function(dv, idx) {
-      const dpForThis = idx === 0 ? pagamento : '';
-      const status = calcStatus(dv, dpForThis);
-      state.contasAPagar.push({
-        id: uid(),
-        titulo,
-        fornecedor_id,
-        data_vencimento: dv,
-        data_pagamento: (idx === 0 && status === 'PAGO' && !dpForThis) ? new Date().toISOString().slice(0, 10) : dpForThis,
-        valor_bruto,
-        valor_pago: status === 'PAGO' ? valor_bruto : 0,
-        status,
-        observacao
-      });
-      totalCriadas++;
+  dates.forEach(function(dv, idx) {
+    const dpForThis = idx === 0 ? pagamento : '';
+    const status = calcStatus(dv, dpForThis);
+    state.contasAPagar.push({
+      id: uid(),
+      titulo,
+      fornecedor_id,
+      data_vencimento: dv,
+      data_pagamento: (idx === 0 && status === 'PAGO' && !dpForThis) ? new Date().toISOString().slice(0, 10) : dpForThis,
+      valor_bruto,
+      valor_pago: status === 'PAGO' ? valor_bruto : 0,
+      status,
+      observacao
     });
   });
 
   saveState();
-  toast(totalCriadas > 1 ? (totalCriadas + ' contas cadastradas!') : 'Conta cadastrada!');
+  toast(dates.length > 1 ? (dates.length + ' contas cadastradas (recorrência aplicada)!') : 'Conta cadastrada!');
   render();
 }
 
@@ -5431,6 +5577,941 @@ function deleteConta(id) {
     state.contasAPagar.forEach(function(c) { if (c.id === id) c._deleted = true; });
     saveState(); updateSyncStatus('success', 'Dados salvos'); render();
     toast('Conta excluída');
+  });
+}
+
+// ============================================================
+// CONTAS A RECEBER
+// ============================================================
+const statusColorsReceb = { 'RECEBIDO': 'badge-success', 'RECEBIDO_PARCIALMENTE': 'badge-info', 'A_VENCER': 'badge-info', 'VENCIDO': 'badge-danger', 'CANCELADO': 'badge-secondary', 'DESCONTADO_FIDC': 'badge-warning', 'LIQUIDADO_FIDC': 'badge-success' };
+const statusLabelsReceb = { 'RECEBIDO': 'Recebido', 'RECEBIDO_PARCIALMENTE': 'Parcialmente', 'A_VENCER': 'A Vencer', 'VENCIDO': 'Vencido', 'CANCELADO': 'Cancelado', 'DESCONTADO_FIDC': 'Descontado FIDC', 'LIQUIDADO_FIDC': 'Liquidado (FIDC)' };
+const formaLabels = { 'DINHEIRO': 'Dinheiro', 'PIX': 'Pix', 'BOLETO': 'Boleto', 'CARTAO': 'Cartão', 'CHEQUE': 'Cheque', 'TRANSFERENCIA': 'Transferência', 'ADIANTAMENTO': 'Adiantamento' };
+let _fidcSelecionados = new Set();
+
+function renderContasReceber(container, actions) {
+  actions.innerHTML = `<button class="btn btn-outline" onclick="showOperacoesFidcModal()" style="margin-right:8px;">&#127974; Operações FIDC</button><button class="btn btn-outline" onclick="showRecebimentoAdiantadoForm()" style="margin-right:8px;">&#128176; Recebimento Adiantado</button><button class="btn btn-primary" onclick="showNovoTituloReceberForm()">&#43; Novo Título</button>`;
+
+  const search = (state.search.recebiveis || '').toLowerCase();
+  const statusFilter = state.recebivelStatusFilter;
+  const dateStart = state.recebivelDateStart;
+  const dateEnd = state.recebivelDateEnd;
+
+  let filtered = getActiveRecebiveis();
+
+  if (search) {
+    filtered = filtered.filter(function(c) {
+      const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+      const clienteNome = cliente ? (cliente.nome || '').toLowerCase() : '';
+      return (c.titulo || '').toLowerCase().includes(search) || clienteNome.includes(search) || (c.observacao || '').toLowerCase().includes(search);
+    });
+  }
+  if (statusFilter) filtered = filtered.filter(function(c) { return c.status === statusFilter; });
+  if (dateStart) filtered = filtered.filter(function(c) { return c.data_vencimento >= dateStart; });
+  if (dateEnd) filtered = filtered.filter(function(c) { return c.data_vencimento <= dateEnd; });
+
+  filtered = filtered.sort(function(a, b) { return (a.data_vencimento || '').localeCompare(b.data_vencimento || ''); });
+
+  const total = filtered.length;
+  const totalGeral = filtered.reduce(function(s, c) { return s + (parseFloat(c.valor_bruto) || 0); }, 0);
+  const totalRecebido = filtered.reduce(function(s, c) { return s + (parseFloat(c.valor_pago) || 0); }, 0);
+  const totalVencido = filtered.filter(function(c) { return c.status === 'VENCIDO'; }).reduce(function(s, c) { return s + ((parseFloat(c.valor_bruto) || 0) - (parseFloat(c.valor_pago) || 0)); }, 0);
+  const totalAdiantamentos = getActiveClients().reduce(function(s, cl) { return s + getSaldoAdiantamento(cl.id); }, 0);
+
+  const clientesAtivos = getActiveClients().sort(function(a, b) { return (a.nome || '').localeCompare(b.nome || '', 'pt-BR'); });
+
+  container.innerHTML = `
+    <div style="padding:0;">
+      <div class="stats-grid" style="margin-bottom:16px;grid-template-columns:repeat(4,1fr);gap:16px;">
+        <div class="stat-card" style="padding:20px 24px;">
+          <div style="position:absolute;top:12px;left:16px;"><div style="display:flex;align-items:center;gap:8px;"><div class="icon-wrap" style="background:var(--primary-bg);color:var(--primary);width:36px;height:36px;font-size:18px;">&#128179;</div><div style="font-size:13px;color:var(--gray-500);font-weight:500;">Total Geral</div></div></div>
+          <div style="position:absolute;bottom:10px;right:14px;text-align:right;"><div style="font-size:11px;color:var(--gray-400);">${total} título${total !== 1 ? 's' : ''}</div></div>
+          <div style="position:absolute;top:55%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;"><div class="value" style="font-size:24px;word-break:break-all;">${formatMoney(totalGeral)}</div></div>
+        </div>
+        <div class="stat-card" style="padding:20px 24px;">
+          <div style="position:absolute;top:12px;left:16px;"><div style="display:flex;align-items:center;gap:8px;"><div class="icon-wrap" style="background:var(--success-bg);color:var(--success);width:36px;height:36px;font-size:18px;">&#10004;</div><div style="font-size:13px;color:var(--gray-500);font-weight:500;">Total Recebido</div></div></div>
+          <div style="position:absolute;top:55%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;"><div class="value" style="font-size:24px;color:var(--success);word-break:break-all;">${formatMoney(totalRecebido)}</div></div>
+        </div>
+        <div class="stat-card" style="padding:20px 24px;">
+          <div style="position:absolute;top:12px;left:16px;"><div style="display:flex;align-items:center;gap:8px;"><div class="icon-wrap" style="background:var(--danger-bg);color:var(--danger);width:36px;height:36px;font-size:18px;">&#9888;</div><div style="font-size:13px;color:var(--gray-500);font-weight:500;">Saldo Vencido</div></div></div>
+          <div style="position:absolute;top:55%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;"><div class="value" style="font-size:24px;color:var(--danger);word-break:break-all;">${formatMoney(totalVencido)}</div></div>
+        </div>
+        <div class="stat-card" style="padding:20px 24px;">
+          <div style="position:absolute;top:12px;left:16px;"><div style="display:flex;align-items:center;gap:8px;"><div class="icon-wrap" style="background:var(--warning-bg);color:var(--warning);width:36px;height:36px;font-size:18px;">&#128176;</div><div style="font-size:13px;color:var(--gray-500);font-weight:500;">Crédito de Clientes</div></div></div>
+          <div style="position:absolute;top:55%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;"><div class="value" style="font-size:24px;color:var(--warning);word-break:break-all;">${formatMoney(totalAdiantamentos)}</div></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+        <div class="search-box" style="max-width:260px;">
+          <span class="icon">&#128270;</span>
+          <input type="text" id="sreceb" placeholder="Buscar título, cliente..." value="${search}" oninput="state.search.recebiveis=this.value;render();setTimeout(function(){var e=document.getElementById('sreceb');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},10)">
+        </div>
+        <select style="padding:7px 10px;border:1px solid var(--gray-300);border-radius:var(--radius-xs);font-size:12px;font-family:inherit;background:white;" onchange="state.recebivelStatusFilter=this.value;render()">
+          <option value="">Todos status</option>
+          <option value="A_VENCER" ${statusFilter==='A_VENCER'?'selected':''}>A Vencer</option>
+          <option value="VENCIDO" ${statusFilter==='VENCIDO'?'selected':''}>Vencido</option>
+          <option value="RECEBIDO" ${statusFilter==='RECEBIDO'?'selected':''}>Recebido</option>
+          <option value="RECEBIDO_PARCIALMENTE" ${statusFilter==='RECEBIDO_PARCIALMENTE'?'selected':''}>Parcialmente</option>
+          <option value="CANCELADO" ${statusFilter==='CANCELADO'?'selected':''}>Cancelado</option>
+        </select>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <input type="date" value="${dateStart}" onchange="state.recebivelDateStart=this.value;render()" style="padding:6px 8px;border:1px solid var(--gray-300);border-radius:var(--radius-xs);font-size:12px;font-family:inherit;">
+          <span style="color:var(--gray-400);font-size:12px;">até</span>
+          <input type="date" value="${dateEnd}" onchange="state.recebivelDateEnd=this.value;render()" style="padding:6px 8px;border:1px solid var(--gray-300);border-radius:var(--radius-xs);font-size:12px;font-family:inherit;">
+        </div>
+        <span style="font-size:12px;color:var(--gray-500);margin-left:auto;">${total} registro${total !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div id="fidcSelectionBar" style="display:none;align-items:center;gap:12px;background:var(--warning-bg);border:1px solid var(--warning);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;">
+        <span style="font-size:13px;font-weight:600;color:var(--gray-700);"><span id="fidcSelCount">0</span> título(s) selecionado(s) &middot; Total: <span id="fidcSelTotal">R$ 0,00</span></span>
+        <button class="btn btn-primary" style="margin-left:auto;padding:6px 14px;font-size:12px;" onclick="showEnviarFidcForm()">&#127974; Enviar para Desconto FIDC</button>
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:12px;" onclick="limparSelecaoFidc()">Limpar seleção</button>
+      </div>
+
+      <div class="grid-contas-wrap">
+        <table class="grid-contas">
+          <thead>
+            <tr>
+              <th style="width:32px;text-align:center;"></th>
+              <th class="col-titulo">Título</th>
+              <th class="col-forn">Cliente</th>
+              <th class="col-date">Vencimento</th>
+              <th class="col-date">Recebimento</th>
+              <th class="col-num">Valor</th>
+              <th class="col-status" style="width:8%;">Forma</th>
+              <th class="col-status">Status</th>
+              <th class="col-acoes">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.length === 0 ? '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--gray-400);">Nenhum título registrado.</td></tr>' : ''}
+            ${filtered.map(function(c) {
+              const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+              const clienteNome = cliente ? cliente.nome : '(cliente não encontrado)';
+              const statusClass = statusColorsReceb[c.status] || 'badge-info';
+              const isVencido = c.status === 'VENCIDO';
+              const isAVencer = c.status === 'A_VENCER';
+              const isRecebido = c.status === 'RECEBIDO';
+              const isParcial = c.status === 'RECEBIDO_PARCIALMENTE';
+              const isCancelado = c.status === 'CANCELADO';
+              const isFidc = c.status === 'DESCONTADO_FIDC';
+              const isFidcLiquidado = c.status === 'LIQUIDADO_FIDC';
+              const elegivelFidc = c.tipo !== 'ADIANTAMENTO' && (isAVencer || isVencido);
+              const cheque = c.forma_recebimento === 'CHEQUE' ? getActiveCheques().find(function(ch) { return ch.conta_receber_id === c.id; }) : null;
+              return `<tr>
+                <td style="text-align:center;">${elegivelFidc ? '<input type="checkbox" ' + (_fidcSelecionados.has(c.id) ? 'checked' : '') + ' onchange="toggleFidcSelecionado(\'' + c.id + '\')">' : ''}</td>
+                <td class="col-titulo" style="font-weight:600;" title="${escapeHtml(c.titulo||'')}">${escapeHtml(c.titulo||'')}${c.tipo==='ADIANTAMENTO' ? ' <span class="badge badge-info" style="font-size:9px;">ADIANT.</span>' : ''}${(isFidc||isFidcLiquidado) ? ' <span class="badge badge-warning" style="font-size:9px;">FIDC</span>' : ''}</td>
+                <td class="col-forn" title="${escapeHtml(clienteNome)}">${escapeHtml(clienteNome)}</td>
+                <td class="col-date">${formatDateBR(c.data_vencimento)}</td>
+                <td class="col-date">${formatDateBR(c.data_recebimento)}</td>
+                <td class="col-num" style="text-align:right;font-weight:600;">${formatBRL(c.valor_bruto)}</td>
+                <td class="col-status" style="text-align:center;font-size:11px;">${formaLabels[c.forma_recebimento] || '-'}${cheque ? '<div style="font-size:9px;color:var(--gray-400);">' + (chequeStatusLabels[cheque.status]||'') + '</div>' : ''}</td>
+                <td class="col-status">
+                  <span class="badge ${statusClass}">${statusLabelsReceb[c.status] || c.status}</span>
+                  ${isParcial ? '<div style="font-size:10px;color:var(--gray-500);margin-top:3px;white-space:nowrap;">Receb.: ' + formatBRL(c.valor_pago||0) + ' &middot; Saldo: ' + formatBRL((parseFloat(c.valor_bruto)||0) - (parseFloat(c.valor_pago)||0)) + '</div>' : ''}
+                </td>
+                <td class="col-acoes">
+                  <div class="dropdown-wrap">
+                    <button class="dropdown-btn" onclick="toggleDropdown('ddr_${c.id}')" title="Mais opções">&#8943;</button>
+                    <div class="dropdown-menu" id="ddr_${c.id}">
+                      ${!isFidc && !isFidcLiquidado ? '<button class="dropdown-item" onclick="showRecebivelForm(\'' + c.id + '\')">&#9998; Editar</button><div class="dropdown-divider"></div>' : ''}
+                      ${!isRecebido && !isCancelado && !isFidc && !isFidcLiquidado ? '<button class="dropdown-item" onclick="showRecebimentoForm(\'' + c.id + '\',\'RECEBIDO\')"><span class="dot" style="background:var(--success);"></span> Receber Total</button>' : ''}
+                      ${!isParcial && !isRecebido && !isCancelado && !isFidc && !isFidcLiquidado ? '<button class="dropdown-item" onclick="showRecebimentoForm(\'' + c.id + '\',\'RECEBIDO_PARCIALMENTE\')"><span class="dot" style="background:var(--primary);"></span> Receber Parcial</button>' : ''}
+                      ${isParcial ? '<button class="dropdown-item" onclick="showRecebimentoForm(\'' + c.id + '\',\'QUITAR\')"><span class="dot" style="background:var(--success);"></span> Quitar Saldo Restante</button>' : ''}
+                      ${isFidc ? '<button class="dropdown-item" onclick="confirmarLiquidacaoFidcTitulo(\'' + c.id + '\')"><span class="dot" style="background:var(--success);"></span> Confirmar Pagamento pelo Sacado</button>' : ''}
+                      ${isFidc ? '<button class="dropdown-item" onclick="registrarRecompraFidcTitulo(\'' + c.id + '\')"><span class="dot" style="background:var(--danger);"></span> Registrar Recompra/Chargeback</button>' : ''}
+                      ${(isFidc || isFidcLiquidado) ? '<button class="dropdown-item" onclick="verOperacaoFidcDoTitulo(\'' + c.id + '\')">&#127974; Ver Operação FIDC</button>' : ''}
+                      ${!isCancelado && !isFidc && !isFidcLiquidado ? '<button class="dropdown-item" onclick="changeRecebivelStatus(\'' + c.id + '\',\'CANCELADO\')"><span class="dot" style="background:var(--warning);"></span> Cancelar</button>' : ''}
+                      <div class="dropdown-divider"></div>
+                      <button class="dropdown-item danger" onclick="deleteRecebivel('${c.id}')">&#128465; Excluir</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  atualizaFidcSelectionBar();
+}
+
+function toggleFidcSelecionado(id) {
+  if (_fidcSelecionados.has(id)) _fidcSelecionados.delete(id); else _fidcSelecionados.add(id);
+  atualizaFidcSelectionBar();
+}
+
+function limparSelecaoFidc() {
+  _fidcSelecionados.clear();
+  render();
+}
+
+function atualizaFidcSelectionBar() {
+  const bar = document.getElementById('fidcSelectionBar');
+  if (!bar) return;
+  const selecionados = getActiveRecebiveis().filter(function(c) { return _fidcSelecionados.has(c.id); });
+  if (selecionados.length === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const total = selecionados.reduce(function(s, c) { return s + (parseFloat(c.valor_bruto) || 0); }, 0);
+  document.getElementById('fidcSelCount').textContent = selecionados.length;
+  document.getElementById('fidcSelTotal').textContent = formatBRL(total);
+}
+
+function changeRecebivelStatus(id, newStatus) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  const idx = state.contasAReceber.findIndex(function(c) { return c.id === id; });
+  if (idx < 0) return;
+  state.contasAReceber[idx].status = newStatus;
+  if (newStatus !== 'RECEBIDO' && newStatus !== 'RECEBIDO_PARCIALMENTE') {
+    state.contasAReceber[idx].valor_pago = 0;
+  }
+  saveState();
+  toast('Status alterado para "' + (statusLabelsReceb[newStatus] || newStatus) + '"');
+  render();
+}
+
+function deleteRecebivel(id) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  showConfirmModal('Tem certeza que deseja excluir este título de Contas a Receber?', function() {
+    state.contasAReceber.forEach(function(c) { if (c.id === id) c._deleted = true; });
+    saveState(); render();
+    toast('Título excluído');
+  });
+}
+
+// ============================================================
+// DESCONTO / CESSÃO DE RECEBÍVEIS COM FIDC
+// ============================================================
+const fidcOpStatusColors = { 'ATIVA': 'badge-info', 'LIQUIDADA': 'badge-success', 'COM_PENDENCIA': 'badge-warning' };
+const fidcOpStatusLabels = { 'ATIVA': 'Ativa', 'LIQUIDADA': 'Liquidada', 'COM_PENDENCIA': 'Com Pendência' };
+
+function showEnviarFidcForm() {
+  const selecionados = getActiveRecebiveis().filter(function(c) { return _fidcSelecionados.has(c.id); });
+  if (selecionados.length === 0) { toast('Selecione ao menos um título', 'error'); return; }
+  const valorFace = selecionados.reduce(function(s, c) { return s + (parseFloat(c.valor_bruto) || 0); }, 0);
+
+  const listaHtml = selecionados.map(function(c) {
+    const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+    return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--gray-100);"><span>' + escapeHtml(c.titulo||'') + ' &mdash; ' + escapeHtml(cliente ? cliente.nome : '') + '</span><span style="font-weight:600;">' + formatBRL(c.valor_bruto) + '</span></div>';
+  }).join('');
+
+  openModal(`
+    <div class="modal-header"><h3>&#127974; Enviar para Desconto FIDC</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <form onsubmit="saveEnviarFidc(event)">
+      <div class="modal-body">
+        <div style="background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;max-height:160px;overflow-y:auto;">${listaHtml}</div>
+        <div class="form-grid" style="gap:10px;">
+          <div class="full"><div class="form-group" style="gap:3px;"><label>FIDC / Cessionário *</label><input type="text" id="fd_nome" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Data da Operação *</label><input type="date" id="fd_data" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor de Face</label><input type="text" value="${formatBRL(valorFace)}" disabled style="width:100%;background:var(--gray-100);"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Taxa de Desconto (%) *</label><input type="text" inputmode="decimal" id="fd_taxa" required style="width:100%;" placeholder="Ex: 2,5" oninput="atualizaCalculoFidc(${valorFace})"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor do Desconto</label><input type="text" id="fd_valor_desconto" value="R$ 0,00" disabled style="width:100%;background:var(--gray-100);"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Valor Líquido a Receber</label><input type="text" id="fd_valor_liquido" value="${formatBRL(valorFace)}" disabled style="width:100%;background:var(--gray-100);font-weight:700;"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Conta/Banco de Recebimento do Líquido</label><input type="text" id="fd_conta_receb" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="fd_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></textarea></div></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary">Confirmar Operação</button></div>
+    </form>
+  `);
+  setTimeout(function() { var el = document.getElementById('fd_nome'); if (el) el.focus(); }, 50);
+}
+
+function atualizaCalculoFidc(valorFace) {
+  const taxaEl = document.getElementById('fd_taxa');
+  const taxa = parseFloat((taxaEl.value || '0').replace(',', '.')) || 0;
+  const desconto = valorFace * (taxa / 100);
+  const liquido = valorFace - desconto;
+  document.getElementById('fd_valor_desconto').value = formatBRL(desconto);
+  document.getElementById('fd_valor_liquido').value = formatBRL(liquido);
+}
+
+function saveEnviarFidc(event) {
+  event.preventDefault();
+  const selecionados = getActiveRecebiveis().filter(function(c) { return _fidcSelecionados.has(c.id); });
+  if (selecionados.length === 0) { toast('Nenhum título selecionado', 'error'); closeModal(); return; }
+
+  const fidc_nome = document.getElementById('fd_nome').value.trim();
+  const data_operacao = document.getElementById('fd_data').value;
+  const taxa = parseFloat((document.getElementById('fd_taxa').value || '0').replace(',', '.')) || 0;
+  const conta_recebimento = document.getElementById('fd_conta_receb').value.trim();
+  const observacao = document.getElementById('fd_obs').value.trim().toUpperCase();
+
+  if (!fidc_nome) { toast('Informe o nome do FIDC/cessionário', 'error'); return; }
+  if (!data_operacao) { toast('Informe a data da operação', 'error'); return; }
+
+  const valorFace = selecionados.reduce(function(s, c) { return s + (parseFloat(c.valor_bruto) || 0); }, 0);
+  const valorDesconto = Math.round(valorFace * (taxa / 100) * 100) / 100;
+  const valorLiquido = Math.round((valorFace - valorDesconto) * 100) / 100;
+
+  const opId = uid();
+  state.operacoesFidc.push({
+    id: opId, fidc_nome: fidc_nome, data_operacao: data_operacao,
+    contas_ids: selecionados.map(function(c) { return c.id; }),
+    valor_face: valorFace, taxa_desconto: taxa, valor_desconto: valorDesconto,
+    valor_liquido: valorLiquido, conta_recebimento: conta_recebimento,
+    status: 'ATIVA', observacao: observacao
+  });
+
+  selecionados.forEach(function(c) {
+    const idx = state.contasAReceber.findIndex(function(x) { return x.id === c.id; });
+    if (idx >= 0) {
+      state.contasAReceber[idx].status = 'DESCONTADO_FIDC';
+      state.contasAReceber[idx].fidc_operacao_id = opId;
+    }
+  });
+
+  _fidcSelecionados.clear();
+  saveState();
+  closeModal();
+  render();
+  toast(selecionados.length + ' título(s) enviado(s) para desconto junto ao FIDC "' + fidc_nome + '"!');
+}
+
+function verOperacaoFidcDoTitulo(contaId) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  const conta = state.contasAReceber.find(function(c) { return c.id === contaId; });
+  if (!conta || !conta.fidc_operacao_id) return;
+  showOperacoesFidcModal(conta.fidc_operacao_id);
+}
+
+// Confirma que o sacado (cliente devedor) pagou diretamente ao FIDC — o
+// título é encerrado apenas para fins de controle/conciliação, já que o
+// dinheiro já havia sido recebido pela empresa no momento da cessão.
+function confirmarLiquidacaoFidcTitulo(contaId) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  showConfirmModal('Confirmar que o sacado quitou este título diretamente com o FIDC?', function() {
+    const idx = state.contasAReceber.findIndex(function(c) { return c.id === contaId; });
+    if (idx < 0) return;
+    state.contasAReceber[idx].status = 'LIQUIDADO_FIDC';
+    state.contasAReceber[idx].data_recebimento = state.contasAReceber[idx].data_recebimento || new Date().toISOString().slice(0,10);
+    atualizaStatusOperacaoFidc(state.contasAReceber[idx].fidc_operacao_id);
+    saveState(); render();
+    toast('Título marcado como liquidado junto ao FIDC.');
+  });
+}
+
+// Registra a recompra (chargeback/coobrigação): o sacado não pagou e a
+// empresa precisa recomprar o título do FIDC. O título volta a ser
+// cobrável normalmente e é lançado um débito em Contas a Pagar para o FIDC.
+function registrarRecompraFidcTitulo(contaId) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  const conta = state.contasAReceber.find(function(c) { return c.id === contaId; });
+  if (!conta) return;
+  const op = (state.operacoesFidc || []).find(function(o) { return o.id === conta.fidc_operacao_id; });
+  openModal(`
+    <div class="modal-header"><h3>Registrar Recompra / Chargeback</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <form onsubmit="saveRecompraFidc(event, '${contaId}')">
+      <div class="modal-body">
+        <div style="background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--gray-600);">
+          <div><strong>${escapeHtml(conta.titulo||'')}</strong></div>
+          <div>FIDC: <strong>${op ? escapeHtml(op.fidc_nome) : '-'}</strong></div>
+          <div>Valor do título: <strong>${formatBRL(conta.valor_bruto)}</strong></div>
+        </div>
+        <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px;">O título volta a ficar em aberto para cobrança do cliente, e será lançado um débito em <strong>Contas a Pagar</strong> referente ao valor de recompra pago ao FIDC.</div>
+        <div class="form-grid" style="gap:10px;">
+          <div><div class="form-group" style="gap:3px;"><label>Data da Recompra *</label><input type="date" id="rf_data" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor da Recompra *</label><input type="text" inputmode="decimal" id="rf_valor" value="${formatNumBR(conta.valor_bruto)}" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Vencimento do débito com o FIDC *</label><input type="date" id="rf_vencimento" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="rf_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></textarea></div></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary">Confirmar Recompra</button></div>
+    </form>
+  `);
+}
+
+function saveRecompraFidc(event, contaId) {
+  event.preventDefault();
+  const idx = state.contasAReceber.findIndex(function(c) { return c.id === contaId; });
+  if (idx < 0) return;
+  const conta = state.contasAReceber[idx];
+  const op = (state.operacoesFidc || []).find(function(o) { return o.id === conta.fidc_operacao_id; });
+
+  const data = document.getElementById('rf_data').value;
+  const valor = parseNumBR(document.getElementById('rf_valor').value);
+  const vencimento = document.getElementById('rf_vencimento').value;
+  const obs = document.getElementById('rf_obs').value.trim().toUpperCase();
+
+  if (!data || !valor || valor <= 0 || !vencimento) { toast('Preencha os campos obrigatórios', 'error'); return; }
+
+  // Localiza (ou cadastra) o fornecedor referente ao FIDC para lançar a conta a pagar.
+  const nomeFidc = op ? op.fidc_nome : 'FIDC';
+  let fornecedor = _findFornecedorPorNome(nomeFidc);
+  if (!fornecedor) {
+    fornecedor = { id: uid(), nome: nomeFidc.toUpperCase(), doc: '', email: '', telefone: '', _deleted: false };
+    state.fornecedores.push(fornecedor);
+  }
+
+  state.contasAPagar.push({
+    id: uid(), titulo: 'RECOMPRA FIDC - ' + (conta.titulo || ''), fornecedor_id: fornecedor.id,
+    data_vencimento: vencimento, data_pagamento: '', valor_bruto: valor, valor_pago: 0,
+    status: calcStatus(vencimento, ''), observacao: obs
+  });
+
+  // Reabre o título para cobrança normal do cliente.
+  conta.status = calcStatus(conta.data_vencimento, '');
+  conta.observacao = (conta.observacao ? conta.observacao + ' | ' : '') + 'RECOMPRADO DO FIDC EM ' + formatDateBR(data) + (obs ? ' - ' + obs : '');
+
+  if (op) {
+    op.status = 'COM_PENDENCIA';
+  }
+
+  saveState();
+  closeModal();
+  render();
+  toast('Recompra registrada! O título voltou a ficar em aberto e um débito foi lançado em Contas a Pagar.');
+}
+
+function atualizaStatusOperacaoFidc(opId) {
+  const op = (state.operacoesFidc || []).find(function(o) { return o.id === opId; });
+  if (!op) return;
+  const titulosDaOp = getActiveRecebiveis().filter(function(c) { return c.fidc_operacao_id === opId; });
+  const todosLiquidados = titulosDaOp.length > 0 && titulosDaOp.every(function(c) { return c.status === 'LIQUIDADO_FIDC'; });
+  if (todosLiquidados) op.status = 'LIQUIDADA';
+}
+
+function showOperacoesFidcModal(highlightOpId) {
+  const ops = getActiveOperacoesFidc().sort(function(a, b) { return (b.data_operacao || '').localeCompare(a.data_operacao || ''); });
+  openModal(`
+    <div class="modal-header"><h3>&#127974; Operações de Desconto FIDC</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+      ${ops.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--gray-400);font-size:13px;">Nenhuma operação registrada ainda. Selecione títulos em Contas a Receber e clique em "Enviar para Desconto FIDC".</div>' : ''}
+      ${ops.map(function(op) {
+        const titulosDaOp = getActiveRecebiveis().filter(function(c) { return c.fidc_operacao_id === op.id; });
+        const statusClass = fidcOpStatusColors[op.status] || 'badge-info';
+        return `<div style="border:1px solid ${op.id===highlightOpId?'var(--primary)':'var(--gray-200)'};border-radius:var(--radius);padding:14px;margin-bottom:12px;${op.id===highlightOpId?'background:var(--primary-bg);':''}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div><strong style="font-size:14px;">${escapeHtml(op.fidc_nome)}</strong><div style="font-size:11px;color:var(--gray-500);">${formatDateBR(op.data_operacao)}</div></div>
+            <span class="badge ${statusClass}">${fidcOpStatusLabels[op.status] || op.status}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;margin-bottom:10px;">
+            <div>Valor Face: <strong>${formatBRL(op.valor_face)}</strong></div>
+            <div>Taxa: <strong>${(parseFloat(op.taxa_desconto)||0).toLocaleString('pt-BR')}%</strong></div>
+            <div>Líquido: <strong>${formatBRL(op.valor_liquido)}</strong></div>
+          </div>
+          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">${titulosDaOp.length} título(s):</div>
+          ${titulosDaOp.map(function(c) {
+            const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+            return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--gray-100);"><span>' + escapeHtml(c.titulo||'') + ' &mdash; ' + escapeHtml(cliente?cliente.nome:'') + '</span><span class="badge ' + (statusColorsReceb[c.status]||'badge-info') + '" style="font-size:9px;">' + (statusLabelsReceb[c.status]||c.status) + '</span></div>';
+          }).join('')}
+          ${op.observacao ? '<div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Obs: ' + escapeHtml(op.observacao) + '</div>' : ''}
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `);
+}
+
+// ===== Novo título avulso (não vinculado a pedido) =====
+function showNovoTituloReceberForm() {
+  const clientesAtivos = getActiveClients().sort(function(a, b) { return (a.nome || '').localeCompare(b.nome || '', 'pt-BR'); });
+  const clienteOpts = '<option value="">Selecione</option>' + clientesAtivos.map(function(c) { return '<option value="' + c.id + '">' + escapeHtml(c.nome) + '</option>'; }).join('');
+  openModal(`
+    <div class="modal-header"><h3>&#43; Novo Título a Receber</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <form onsubmit="saveNovoTituloReceber(event)">
+      <div class="modal-body">
+        <div class="form-grid" style="gap:10px;">
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Título *</label><input type="text" id="nt_titulo" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Cliente *</label><select id="nt_cliente" required style="width:100%;">${clienteOpts}</select></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Vencimento *</label><input type="date" id="nt_vencimento" required style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="nt_valor" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Forma de Recebimento Prevista</label><select id="nt_forma" style="width:100%;"><option value="DINHEIRO">Dinheiro</option><option value="PIX" selected>Pix</option><option value="BOLETO">Boleto</option><option value="CARTAO">Cartão</option><option value="CHEQUE">Cheque</option><option value="TRANSFERENCIA">Transferência</option></select></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="nt_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></textarea></div></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary">Salvar</button></div>
+    </form>
+  `);
+  setTimeout(function() { var t = document.getElementById('nt_titulo'); if (t) t.focus(); }, 50);
+}
+
+function saveNovoTituloReceber(event) {
+  event.preventDefault();
+  const titulo = document.getElementById('nt_titulo').value.trim();
+  const cliente_id = document.getElementById('nt_cliente').value;
+  const data_vencimento = document.getElementById('nt_vencimento').value;
+  const valor_bruto = parseNumBR(document.getElementById('nt_valor').value);
+  const forma_recebimento = document.getElementById('nt_forma').value;
+  const observacao = document.getElementById('nt_obs').value.trim().toUpperCase();
+
+  if (!titulo) { toast('Informe o título', 'error'); return; }
+  if (!cliente_id) { toast('Selecione o cliente', 'error'); return; }
+  if (!data_vencimento) { toast('Informe o vencimento', 'error'); return; }
+  if (!valor_bruto || valor_bruto <= 0) { toast('Informe o valor', 'error'); return; }
+
+  state.contasAReceber.push({
+    id: uid(), tipo: 'NORMAL', pedido_id: '', cliente_id: cliente_id, titulo: titulo,
+    data_vencimento: data_vencimento, data_recebimento: '', valor_bruto: valor_bruto,
+    valor_pago: 0, valor_utilizado: 0, forma_recebimento: forma_recebimento,
+    status: calcStatus(data_vencimento, ''), observacao: observacao
+  });
+  saveState();
+  closeModal();
+  render();
+  toast('Título lançado em Contas a Receber!');
+}
+
+// ===== Edição de título =====
+function showRecebivelForm(id) {
+  const c = state.contasAReceber.find(function(x) { return x.id === id; });
+  if (!c) return;
+  const clientesAtivos = getActiveClients().sort(function(a, b) { return (a.nome || '').localeCompare(b.nome || '', 'pt-BR'); });
+  const clienteOpts = clientesAtivos.map(function(cl) { return '<option value="' + cl.id + '"' + (c.cliente_id === cl.id ? ' selected' : '') + '>' + escapeHtml(cl.nome) + '</option>'; }).join('');
+  const bloqueado = c.status === 'RECEBIDO' || c.status === 'RECEBIDO_PARCIALMENTE';
+  openModal(`
+    <div class="modal-header"><h3>Editar Título a Receber</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <form onsubmit="saveRecebivelEdit(event, '${id}')">
+      <div class="modal-body">
+        <div class="form-grid" style="gap:10px;">
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Título *</label><input type="text" id="rt_titulo" value="${(c.titulo||'').replace(/"/g,'&quot;')}" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Cliente *</label><select id="rt_cliente" required style="width:100%;" ${c.pedido_id ? 'disabled' : ''}>${clienteOpts}</select></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Vencimento *</label><input type="date" id="rt_vencimento" value="${c.data_vencimento||''}" required style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="rt_valor" value="${formatNumBR(c.valor_bruto)}" required style="width:100%;" ${bloqueado ? 'disabled' : ''} onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="rt_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">${c.observacao||''}</textarea></div></div>
+          ${bloqueado ? '<div class="full" style="font-size:11px;color:var(--gray-500);">Para alterar valores recebidos, use as opções do menu &#8943; do título.</div>' : ''}
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary">Salvar</button></div>
+    </form>
+  `);
+}
+
+function saveRecebivelEdit(event, id) {
+  event.preventDefault();
+  const idx = state.contasAReceber.findIndex(function(c) { return c.id === id; });
+  if (idx < 0) return;
+  const c = state.contasAReceber[idx];
+  c.titulo = document.getElementById('rt_titulo').value.trim();
+  if (!c.pedido_id) c.cliente_id = document.getElementById('rt_cliente').value;
+  c.data_vencimento = document.getElementById('rt_vencimento').value;
+  const valorEl = document.getElementById('rt_valor');
+  if (!valorEl.disabled) c.valor_bruto = parseNumBR(valorEl.value);
+  c.observacao = document.getElementById('rt_obs').value.trim().toUpperCase();
+  if (c.status !== 'RECEBIDO' && c.status !== 'RECEBIDO_PARCIALMENTE' && c.status !== 'CANCELADO') {
+    c.status = calcStatus(c.data_vencimento, '');
+  }
+  saveState();
+  closeModal();
+  render();
+  toast('Título atualizado!');
+}
+
+// ===== Registro de recebimento (Total / Parcial / Quitar Saldo) — com forma de pagamento e cheque =====
+function showRecebimentoForm(id, target) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  const c = state.contasAReceber.find(function(x) { return x.id === id; });
+  if (!c) return;
+  const valorBruto = parseFloat(c.valor_bruto) || 0;
+  const jaRecebido = parseFloat(c.valor_pago) || 0;
+  const saldo = Math.max(0, valorBruto - jaRecebido);
+  const saldoCredito = getSaldoAdiantamento(c.cliente_id);
+
+  const titulos = { 'RECEBIDO': 'Registrar Recebimento', 'RECEBIDO_PARCIALMENTE': 'Registrar Recebimento Parcial', 'QUITAR': 'Quitar Saldo Restante' };
+  const valorSugerido = target === 'RECEBIDO_PARCIALMENTE' ? '' : saldo;
+
+  openModal(`
+    <div class="modal-header"><h3>${titulos[target]}</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <form onsubmit="saveRecebimento(event, '${id}', '${target}')">
+      <div class="modal-body">
+        <div style="background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--gray-600);display:flex;flex-direction:column;gap:3px;">
+          <div><strong>${(c.titulo||'').toUpperCase()}</strong></div>
+          <div>Valor Total: <strong>${formatBRL(valorBruto)}</strong></div>
+          ${jaRecebido > 0 ? '<div>Já Recebido: <strong>' + formatBRL(jaRecebido) + '</strong></div>' : ''}
+          <div>Saldo Restante: <strong id="rc_saldo_atual">${formatBRL(saldo)}</strong></div>
+          ${saldoCredito > 0 ? '<div style="color:var(--warning);">Crédito disponível do cliente: <strong>' + formatBRL(saldoCredito) + '</strong> (pode ser usado como forma "Adiantamento")</div>' : ''}
+        </div>
+        <div class="form-grid" style="gap:10px;">
+          <div><div class="form-group" style="gap:3px;"><label>Data do Recebimento *</label><input type="date" id="rc_data" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor Recebido Agora *</label><input type="text" inputmode="decimal" id="rc_valor" value="${valorSugerido === '' ? '' : formatNumBR(valorSugerido)}" placeholder="0,00" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value); atualizaSaldoPreviewReceb(${valorBruto}, ${jaRecebido})" oninput="atualizaSaldoPreviewReceb(${valorBruto}, ${jaRecebido})"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Forma de Recebimento *</label>
+            <select id="rc_forma" required style="width:100%;" onchange="toggleCampoChequeReceb()">
+              <option value="DINHEIRO">Dinheiro</option>
+              <option value="PIX">Pix</option>
+              <option value="BOLETO">Boleto</option>
+              <option value="CARTAO">Cartão</option>
+              <option value="CHEQUE">Cheque</option>
+              <option value="TRANSFERENCIA">Transferência/TED</option>
+              ${saldoCredito > 0 ? '<option value="ADIANTAMENTO">Usar Crédito/Adiantamento do Cliente (disp. ' + formatBRL(saldoCredito) + ')</option>' : ''}
+            </select>
+          </div></div>
+          <div class="full" id="rc_cheque_fields" style="display:none;border:1px dashed var(--gray-300);border-radius:var(--radius-xs);padding:10px;">
+            <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:8px;">Dados do Cheque</div>
+            <div class="form-grid" style="gap:8px;">
+              <div><div class="form-group" style="gap:3px;"><label>Nº do Cheque</label><input type="text" id="rc_ch_numero" style="width:100%;"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="rc_ch_banco" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Agência</label><input type="text" id="rc_ch_agencia" style="width:100%;"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Conta</label><input type="text" id="rc_ch_conta" style="width:100%;"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Emitente</label><input type="text" id="rc_ch_emitente" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>CPF/CNPJ Emitente</label><input type="text" id="rc_ch_cpfcnpj" style="width:100%;"></div></div>
+              <div class="full"><div class="form-group" style="gap:3px;"><label>Data de Compensação (Bom para) *</label><input type="date" id="rc_ch_compensacao" style="width:100%;"></div></div>
+            </div>
+          </div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="rc_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></textarea></div></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary">Confirmar</button></div>
+    </form>
+  `);
+  setTimeout(function() { var v = document.getElementById('rc_valor'); if (v) v.focus(); }, 50);
+}
+
+function toggleCampoChequeReceb() {
+  const forma = document.getElementById('rc_forma').value;
+  const wrap = document.getElementById('rc_cheque_fields');
+  if (wrap) wrap.style.display = forma === 'CHEQUE' ? 'block' : 'none';
+}
+
+function atualizaSaldoPreviewReceb(valorBruto, jaRecebido) {
+  var input = document.getElementById('rc_valor');
+  var saldoEl = document.getElementById('rc_saldo_atual');
+  if (!input || !saldoEl) return;
+  var digitado = parseNumBR(input.value) || 0;
+  var novoSaldo = Math.max(0, valorBruto - jaRecebido - digitado);
+  saldoEl.textContent = formatBRL(novoSaldo);
+}
+
+function saveRecebimento(event, id, target) {
+  event.preventDefault();
+  const idx = state.contasAReceber.findIndex(function(c) { return c.id === id; });
+  if (idx < 0) return;
+  const c = state.contasAReceber[idx];
+
+  const data = document.getElementById('rc_data').value;
+  const valor = parseNumBR(document.getElementById('rc_valor').value);
+  const forma = document.getElementById('rc_forma').value;
+  const obs = document.getElementById('rc_obs').value.trim().toUpperCase();
+
+  if (!data) { toast('Informe a data do recebimento', 'error'); return; }
+  if (!valor || valor <= 0) { toast('Informe o valor recebido', 'error'); return; }
+
+  if (forma === 'ADIANTAMENTO') {
+    const aplicado = aplicarAdiantamento(c.cliente_id, valor);
+    if (aplicado < valor - 0.005) {
+      toast('Crédito de adiantamento insuficiente para o valor informado.', 'error');
+      return;
+    }
+  }
+
+  if (forma === 'CHEQUE') {
+    const dataCompensacao = document.getElementById('rc_ch_compensacao').value;
+    if (!dataCompensacao) { toast('Informe a data de compensação do cheque', 'error'); return; }
+    state.cheques.push({
+      id: uid(), conta_receber_id: c.id, cliente_id: c.cliente_id,
+      numero_cheque: document.getElementById('rc_ch_numero').value.trim(),
+      banco: document.getElementById('rc_ch_banco').value.trim(),
+      agencia: document.getElementById('rc_ch_agencia').value.trim(),
+      conta: document.getElementById('rc_ch_conta').value.trim(),
+      emitente: document.getElementById('rc_ch_emitente').value.trim(),
+      cpf_cnpj_emitente: document.getElementById('rc_ch_cpfcnpj').value.trim(),
+      valor: valor, data_recebimento: data, data_compensacao: dataCompensacao,
+      status: 'EM_CARTEIRA', observacao: obs
+    });
+  }
+
+  const valorBruto = parseFloat(c.valor_bruto) || 0;
+  const jaRecebido = parseFloat(c.valor_pago) || 0;
+  const novoTotalRecebido = jaRecebido + valor;
+
+  c.valor_pago = novoTotalRecebido >= valorBruto ? valorBruto : novoTotalRecebido;
+  c.data_recebimento = data;
+  c.forma_recebimento = forma;
+  if (obs) c.observacao = (c.observacao ? c.observacao + ' | ' : '') + obs;
+  c.status = novoTotalRecebido >= valorBruto ? 'RECEBIDO' : 'RECEBIDO_PARCIALMENTE';
+
+  saveState();
+  closeModal();
+  render();
+  toast(c.status === 'RECEBIDO' ? 'Recebimento registrado com sucesso!' : 'Recebimento parcial registrado!');
+}
+
+// ===== Recebimento Adiantado (gera crédito para o cliente) =====
+function showRecebimentoAdiantadoForm() {
+  const clientesAtivos = getActiveClients().sort(function(a, b) { return (a.nome || '').localeCompare(b.nome || '', 'pt-BR'); });
+  const clienteOpts = '<option value="">Selecione</option>' + clientesAtivos.map(function(c) { return '<option value="' + c.id + '">' + escapeHtml(c.nome) + '</option>'; }).join('');
+  openModal(`
+    <div class="modal-header"><h3>&#128176; Recebimento Adiantado</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <form onsubmit="saveRecebimentoAdiantado(event)">
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px;">O valor recebido ficará como crédito do cliente, disponível para abater em futuras Contas a Receber (forma "Adiantamento").</div>
+        <div class="form-grid" style="gap:10px;">
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Cliente *</label><select id="ad_cliente" required style="width:100%;">${clienteOpts}</select></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Data do Recebimento *</label><input type="date" id="ad_data" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="ad_valor" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Forma de Recebimento *</label>
+            <select id="ad_forma" required style="width:100%;" onchange="toggleCampoChequeAdiant()">
+              <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix</option><option value="BOLETO">Boleto</option>
+              <option value="CARTAO">Cartão</option><option value="CHEQUE">Cheque</option><option value="TRANSFERENCIA">Transferência/TED</option>
+            </select>
+          </div></div>
+          <div class="full" id="ad_cheque_fields" style="display:none;border:1px dashed var(--gray-300);border-radius:var(--radius-xs);padding:10px;">
+            <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:8px;">Dados do Cheque</div>
+            <div class="form-grid" style="gap:8px;">
+              <div><div class="form-group" style="gap:3px;"><label>Nº do Cheque</label><input type="text" id="ad_ch_numero" style="width:100%;"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="ad_ch_banco" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Agência</label><input type="text" id="ad_ch_agencia" style="width:100%;"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Conta</label><input type="text" id="ad_ch_conta" style="width:100%;"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Emitente</label><input type="text" id="ad_ch_emitente" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>CPF/CNPJ Emitente</label><input type="text" id="ad_ch_cpfcnpj" style="width:100%;"></div></div>
+              <div class="full"><div class="form-group" style="gap:3px;"><label>Data de Compensação (Bom para) *</label><input type="date" id="ad_ch_compensacao" style="width:100%;"></div></div>
+            </div>
+          </div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="ad_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></textarea></div></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary">Registrar</button></div>
+    </form>
+  `);
+  setTimeout(function() { var el = document.getElementById('ad_cliente'); if (el) el.focus(); }, 50);
+}
+
+function toggleCampoChequeAdiant() {
+  const forma = document.getElementById('ad_forma').value;
+  const wrap = document.getElementById('ad_cheque_fields');
+  if (wrap) wrap.style.display = forma === 'CHEQUE' ? 'block' : 'none';
+}
+
+function saveRecebimentoAdiantado(event) {
+  event.preventDefault();
+  const cliente_id = document.getElementById('ad_cliente').value;
+  const data = document.getElementById('ad_data').value;
+  const valor = parseNumBR(document.getElementById('ad_valor').value);
+  const forma = document.getElementById('ad_forma').value;
+  const obs = document.getElementById('ad_obs').value.trim().toUpperCase();
+
+  if (!cliente_id) { toast('Selecione o cliente', 'error'); return; }
+  if (!data) { toast('Informe a data', 'error'); return; }
+  if (!valor || valor <= 0) { toast('Informe o valor', 'error'); return; }
+
+  const idAdiant = uid();
+
+  if (forma === 'CHEQUE') {
+    const dataCompensacao = document.getElementById('ad_ch_compensacao').value;
+    if (!dataCompensacao) { toast('Informe a data de compensação do cheque', 'error'); return; }
+    state.cheques.push({
+      id: uid(), conta_receber_id: idAdiant, cliente_id: cliente_id,
+      numero_cheque: document.getElementById('ad_ch_numero').value.trim(),
+      banco: document.getElementById('ad_ch_banco').value.trim(),
+      agencia: document.getElementById('ad_ch_agencia').value.trim(),
+      conta: document.getElementById('ad_ch_conta').value.trim(),
+      emitente: document.getElementById('ad_ch_emitente').value.trim(),
+      cpf_cnpj_emitente: document.getElementById('ad_ch_cpfcnpj').value.trim(),
+      valor: valor, data_recebimento: data, data_compensacao: dataCompensacao,
+      status: 'EM_CARTEIRA', observacao: obs
+    });
+  }
+
+  state.contasAReceber.push({
+    id: idAdiant, tipo: 'ADIANTAMENTO', pedido_id: '', cliente_id: cliente_id,
+    titulo: 'ADIANTAMENTO DE CLIENTE', data_vencimento: data, data_recebimento: data,
+    valor_bruto: valor, valor_pago: valor, valor_utilizado: 0,
+    forma_recebimento: forma, status: 'RECEBIDO', observacao: obs
+  });
+
+  saveState();
+  closeModal();
+  render();
+  toast('Recebimento adiantado registrado! Crédito disponível para o cliente.');
+}
+
+// ============================================================
+// CONTROLE DE CHEQUES
+// ============================================================
+const chequeStatusColors = { 'EM_CARTEIRA': 'badge-info', 'DEPOSITADO': 'badge-info', 'COMPENSADO': 'badge-success', 'DEVOLVIDO': 'badge-danger', 'TROCADO': 'badge-secondary' };
+const chequeStatusLabels = { 'EM_CARTEIRA': 'Em Carteira', 'DEPOSITADO': 'Depositado', 'COMPENSADO': 'Compensado', 'DEVOLVIDO': 'Devolvido', 'TROCADO': 'Trocado' };
+
+function renderControleCheques(container, actions) {
+  actions.innerHTML = '';
+  const search = (state.search.cheques || '').toLowerCase();
+  const statusFilter = state.chequeStatusFilter;
+  let filtered = getActiveCheques();
+
+  if (search) {
+    filtered = filtered.filter(function(ch) {
+      const cliente = state.clients.find(function(cl) { return cl.id === ch.cliente_id; });
+      const clienteNome = cliente ? (cliente.nome || '').toLowerCase() : '';
+      return clienteNome.includes(search) || (ch.numero_cheque || '').toLowerCase().includes(search) || (ch.emitente || '').toLowerCase().includes(search) || (ch.banco || '').toLowerCase().includes(search);
+    });
+  }
+  if (statusFilter) filtered = filtered.filter(function(ch) { return ch.status === statusFilter; });
+  filtered = filtered.sort(function(a, b) { return (a.data_compensacao || '').localeCompare(b.data_compensacao || ''); });
+
+  const totalCarteira = getActiveCheques().filter(function(ch) { return ch.status === 'EM_CARTEIRA' || ch.status === 'DEPOSITADO'; }).reduce(function(s, ch) { return s + (parseFloat(ch.valor) || 0); }, 0);
+  const totalCompensado = getActiveCheques().filter(function(ch) { return ch.status === 'COMPENSADO'; }).reduce(function(s, ch) { return s + (parseFloat(ch.valor) || 0); }, 0);
+  const totalDevolvido = getActiveCheques().filter(function(ch) { return ch.status === 'DEVOLVIDO'; }).reduce(function(s, ch) { return s + (parseFloat(ch.valor) || 0); }, 0);
+
+  container.innerHTML = `
+    <div style="padding:0;">
+      <div class="stats-grid" style="margin-bottom:16px;grid-template-columns:repeat(3,1fr);gap:16px;">
+        <div class="stat-card" style="padding:20px 24px;">
+          <div style="position:absolute;top:12px;left:16px;"><div style="display:flex;align-items:center;gap:8px;"><div class="icon-wrap" style="background:var(--primary-bg);color:var(--primary);width:36px;height:36px;font-size:18px;">&#128179;</div><div style="font-size:13px;color:var(--gray-500);font-weight:500;">Em Carteira</div></div></div>
+          <div style="position:absolute;top:55%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;"><div class="value" style="font-size:24px;word-break:break-all;">${formatMoney(totalCarteira)}</div></div>
+        </div>
+        <div class="stat-card" style="padding:20px 24px;">
+          <div style="position:absolute;top:12px;left:16px;"><div style="display:flex;align-items:center;gap:8px;"><div class="icon-wrap" style="background:var(--success-bg);color:var(--success);width:36px;height:36px;font-size:18px;">&#10004;</div><div style="font-size:13px;color:var(--gray-500);font-weight:500;">Compensado</div></div></div>
+          <div style="position:absolute;top:55%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;"><div class="value" style="font-size:24px;color:var(--success);word-break:break-all;">${formatMoney(totalCompensado)}</div></div>
+        </div>
+        <div class="stat-card" style="padding:20px 24px;">
+          <div style="position:absolute;top:12px;left:16px;"><div style="display:flex;align-items:center;gap:8px;"><div class="icon-wrap" style="background:var(--danger-bg);color:var(--danger);width:36px;height:36px;font-size:18px;">&#9888;</div><div style="font-size:13px;color:var(--gray-500);font-weight:500;">Devolvido</div></div></div>
+          <div style="position:absolute;top:55%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;"><div class="value" style="font-size:24px;color:var(--danger);word-break:break-all;">${formatMoney(totalDevolvido)}</div></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+        <div class="search-box" style="max-width:260px;">
+          <span class="icon">&#128270;</span>
+          <input type="text" id="scheque" placeholder="Buscar cliente, nº, banco..." value="${search}" oninput="state.search.cheques=this.value;render();setTimeout(function(){var e=document.getElementById('scheque');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},10)">
+        </div>
+        <select style="padding:7px 10px;border:1px solid var(--gray-300);border-radius:var(--radius-xs);font-size:12px;font-family:inherit;background:white;" onchange="state.chequeStatusFilter=this.value;render()">
+          <option value="">Todos status</option>
+          <option value="EM_CARTEIRA" ${statusFilter==='EM_CARTEIRA'?'selected':''}>Em Carteira</option>
+          <option value="DEPOSITADO" ${statusFilter==='DEPOSITADO'?'selected':''}>Depositado</option>
+          <option value="COMPENSADO" ${statusFilter==='COMPENSADO'?'selected':''}>Compensado</option>
+          <option value="DEVOLVIDO" ${statusFilter==='DEVOLVIDO'?'selected':''}>Devolvido</option>
+          <option value="TROCADO" ${statusFilter==='TROCADO'?'selected':''}>Trocado</option>
+        </select>
+        <span style="font-size:12px;color:var(--gray-500);margin-left:auto;">${filtered.length} cheque${filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div class="grid-contas-wrap">
+        <table class="grid-contas">
+          <thead>
+            <tr>
+              <th class="col-forn">Cliente</th>
+              <th class="col-titulo">Nº Cheque</th>
+              <th class="col-forn">Banco/Ag./Conta</th>
+              <th class="col-forn">Emitente</th>
+              <th class="col-num">Valor</th>
+              <th class="col-date">Recebido em</th>
+              <th class="col-date">Bom para</th>
+              <th class="col-status">Status</th>
+              <th class="col-acoes">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.length === 0 ? '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--gray-400);">Nenhum cheque registrado. Cheques são criados automaticamente ao registrar um recebimento com forma "Cheque".</td></tr>' : ''}
+            ${filtered.map(function(ch) {
+              const cliente = state.clients.find(function(cl) { return cl.id === ch.cliente_id; });
+              const clienteNome = cliente ? cliente.nome : '(cliente não encontrado)';
+              const statusClass = chequeStatusColors[ch.status] || 'badge-info';
+              const isCompensado = ch.status === 'COMPENSADO';
+              const isDevolvido = ch.status === 'DEVOLVIDO';
+              const isTrocado = ch.status === 'TROCADO';
+              return `<tr>
+                <td class="col-forn" title="${escapeHtml(clienteNome)}">${escapeHtml(clienteNome)}</td>
+                <td class="col-titulo">${escapeHtml(ch.numero_cheque||'-')}</td>
+                <td class="col-forn" style="font-size:11px;">${escapeHtml(ch.banco||'')} ${ch.agencia ? '/ Ag. '+escapeHtml(ch.agencia) : ''} ${ch.conta ? '/ CC '+escapeHtml(ch.conta) : ''}</td>
+                <td class="col-forn">${escapeHtml(ch.emitente||'-')}</td>
+                <td class="col-num" style="text-align:right;font-weight:600;">${formatBRL(ch.valor)}</td>
+                <td class="col-date">${formatDateBR(ch.data_recebimento)}</td>
+                <td class="col-date">${formatDateBR(ch.data_compensacao)}</td>
+                <td class="col-status"><span class="badge ${statusClass}">${chequeStatusLabels[ch.status] || ch.status}</span></td>
+                <td class="col-acoes">
+                  <div class="dropdown-wrap">
+                    <button class="dropdown-btn" onclick="toggleDropdown('ddc_${ch.id}')" title="Mais opções">&#8943;</button>
+                    <div class="dropdown-menu" id="ddc_${ch.id}">
+                      ${ch.status === 'EM_CARTEIRA' ? '<button class="dropdown-item" onclick="changeChequeStatus(\'' + ch.id + '\',\'DEPOSITADO\')"><span class="dot" style="background:var(--primary);"></span> Marcar Depositado</button>' : ''}
+                      ${!isCompensado ? '<button class="dropdown-item" onclick="changeChequeStatus(\'' + ch.id + '\',\'COMPENSADO\')"><span class="dot" style="background:var(--success);"></span> Marcar Compensado</button>' : ''}
+                      ${!isDevolvido ? '<button class="dropdown-item" onclick="changeChequeStatus(\'' + ch.id + '\',\'DEVOLVIDO\')"><span class="dot" style="background:var(--danger);"></span> Marcar Devolvido</button>' : ''}
+                      ${!isTrocado && (isDevolvido) ? '<button class="dropdown-item" onclick="changeChequeStatus(\'' + ch.id + '\',\'TROCADO\')"><span class="dot" style="background:var(--gray-400);"></span> Marcar Trocado</button>' : ''}
+                      <div class="dropdown-divider"></div>
+                      <button class="dropdown-item" onclick="showChequeForm('${ch.id}')">&#9998; Editar</button>
+                      <button class="dropdown-item danger" onclick="deleteCheque('${ch.id}')">&#128465; Excluir</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// Ao mudar o status de um cheque para DEVOLVIDO, o valor volta a compor o
+// saldo em aberto do título vinculado em Contas a Receber (o recebimento
+// registrado por aquele cheque deixa de valer).
+function changeChequeStatus(id, newStatus) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  const idx = state.cheques.findIndex(function(c) { return c.id === id; });
+  if (idx < 0) return;
+  const cheque = state.cheques[idx];
+  const statusAnterior = cheque.status;
+  cheque.status = newStatus;
+
+  const conta = state.contasAReceber.find(function(c) { return c.id === cheque.conta_receber_id; });
+  if (conta && conta.tipo !== 'ADIANTAMENTO') {
+    if (newStatus === 'DEVOLVIDO' && statusAnterior !== 'DEVOLVIDO') {
+      // Estorna o valor do cheque do título, reabrindo o saldo.
+      conta.valor_pago = Math.max(0, (parseFloat(conta.valor_pago) || 0) - (parseFloat(cheque.valor) || 0));
+      conta.status = conta.valor_pago > 0 ? 'RECEBIDO_PARCIALMENTE' : calcStatus(conta.data_vencimento, '');
+    }
+    if (statusAnterior === 'DEVOLVIDO' && (newStatus === 'COMPENSADO' || newStatus === 'DEPOSITADO')) {
+      // Volta a considerar o cheque como recebido.
+      const novoTotal = (parseFloat(conta.valor_pago) || 0) + (parseFloat(cheque.valor) || 0);
+      const bruto = parseFloat(conta.valor_bruto) || 0;
+      conta.valor_pago = novoTotal >= bruto ? bruto : novoTotal;
+      conta.status = novoTotal >= bruto ? 'RECEBIDO' : 'RECEBIDO_PARCIALMENTE';
+    }
+  }
+
+  saveState();
+  toast('Cheque marcado como "' + (chequeStatusLabels[newStatus] || newStatus) + '"' + (newStatus === 'DEVOLVIDO' ? '. Saldo do título reaberto em Contas a Receber.' : ''));
+  render();
+}
+
+function showChequeForm(id) {
+  const ch = state.cheques.find(function(c) { return c.id === id; });
+  if (!ch) return;
+  openModal(`
+    <div class="modal-header"><h3>Editar Cheque</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <form onsubmit="saveChequeEdit(event, '${id}')">
+      <div class="modal-body">
+        <div class="form-grid" style="gap:10px;">
+          <div><div class="form-group" style="gap:3px;"><label>Nº do Cheque</label><input type="text" id="ec_numero" value="${(ch.numero_cheque||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="ec_banco" value="${(ch.banco||'').replace(/"/g,'&quot;')}" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Agência</label><input type="text" id="ec_agencia" value="${(ch.agencia||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Conta</label><input type="text" id="ec_conta" value="${(ch.conta||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Emitente</label><input type="text" id="ec_emitente" value="${(ch.emitente||'').replace(/"/g,'&quot;')}" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>CPF/CNPJ Emitente</label><input type="text" id="ec_cpfcnpj" value="${(ch.cpf_cnpj_emitente||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="ec_valor" value="${formatNumBR(ch.valor)}" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Data de Compensação *</label><input type="date" id="ec_compensacao" value="${ch.data_compensacao||''}" required style="width:100%;"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="ec_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">${ch.observacao||''}</textarea></div></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary">Salvar</button></div>
+    </form>
+  `);
+}
+
+function saveChequeEdit(event, id) {
+  event.preventDefault();
+  const idx = state.cheques.findIndex(function(c) { return c.id === id; });
+  if (idx < 0) return;
+  const ch = state.cheques[idx];
+  ch.numero_cheque = document.getElementById('ec_numero').value.trim();
+  ch.banco = document.getElementById('ec_banco').value.trim();
+  ch.agencia = document.getElementById('ec_agencia').value.trim();
+  ch.conta = document.getElementById('ec_conta').value.trim();
+  ch.emitente = document.getElementById('ec_emitente').value.trim();
+  ch.cpf_cnpj_emitente = document.getElementById('ec_cpfcnpj').value.trim();
+  ch.valor = parseNumBR(document.getElementById('ec_valor').value);
+  ch.data_compensacao = document.getElementById('ec_compensacao').value;
+  ch.observacao = document.getElementById('ec_obs').value.trim().toUpperCase();
+  saveState();
+  closeModal();
+  render();
+  toast('Cheque atualizado!');
+}
+
+function deleteCheque(id) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  showConfirmModal('Tem certeza que deseja excluir este cheque do controle?', function() {
+    state.cheques.forEach(function(c) { if (c.id === id) c._deleted = true; });
+    saveState(); render();
+    toast('Cheque excluído do controle');
   });
 }
 
@@ -6063,18 +7144,6 @@ async function postLoginInit() {
     console.log('Fornecedores padrão cadastrados: ' + fornDefault.length);
   }
 
-  // Migração única: se o cadastro de Títulos ainda está vazio, popula com a
-  // lista padrão + todos os títulos já usados em contas existentes, para não
-  // perder nenhuma sugestão que já estava em uso antes dessa tela existir.
-  if ((state.titulosCadastrados || []).length === 0) {
-    var titulosPadraoSeed = ['PRO-LABORE', 'ALUGUEL', 'ENERGIA ELÉTRICA', 'ÁGUA', 'TELEFONE', 'INTERNET', 'MATERIAL DE ESCRITÓRIO', 'MANUTENÇÃO', 'SEGURO', 'IMPOSTO', 'TAXA', 'SERVIÇO', 'FORNECIMENTO'];
-    var titulosJaUsados = getActiveContas().map(function(c) { return (c.titulo || '').trim(); }).filter(Boolean);
-    var nomesUnicos = Array.from(new Set([...titulosPadraoSeed, ...titulosJaUsados]));
-    state.titulosCadastrados = nomesUnicos.map(function(nome) { return { id: uid(), nome: nome }; });
-    saveState();
-    console.log('Cadastro de Títulos inicializado com ' + nomesUnicos.length + ' título(s).');
-  }
-
   var hasData = state.products.length > 0 || state.clients.length > 0;
   console.log('Init: produtos=' + state.products.length + ', clientes=' + state.clients.length + ', precos=' + Object.keys(state.prices).length);
 
@@ -6125,8 +7194,6 @@ document.addEventListener('click', function(e) {
   else if (action === 'edit-product') showProductForm(id);
   else if (action === 'delete-fornecedor') deleteFornecedor(id);
   else if (action === 'edit-fornecedor') showFornecedorForm(id);
-  else if (action === 'delete-titulo') deleteTitulo(id);
-  else if (action === 'edit-titulo') showTituloForm(id);
   else if (action === 'delete-conta') deleteConta(id);
 });
 
