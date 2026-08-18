@@ -1587,7 +1587,12 @@ function formatMoney(v) {
 }
 
 function formatNumBR(v) {
-  var n = parseFloat(v) || 0;
+  // When v is a string it may already be in BR format (comma as decimal
+  // separator, e.g. "109,24") -- typically while the user is mid-edit.
+  // parseFloat() alone would truncate at the comma and drop the decimals,
+  // so route strings through parseNumBR() instead. Plain numbers (already
+  // parsed floats) go straight through parseFloat as before.
+  var n = (typeof v === 'string') ? parseNumBR(v) : (parseFloat(v) || 0);
   var parts = n.toFixed(2).split('.');
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return parts.join(',');
@@ -1596,6 +1601,10 @@ function formatNumBR(v) {
 function parseNumBR(s) {
   if (!s) return 0;
   return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+}
+function numToPlainBR(n) {
+  if (!n) return '';
+  return String(n).replace('.', ',');
 }
 function formatOnInput(el) {
   var raw = el.value.replace(/\D/g, '');
@@ -4249,7 +4258,7 @@ function renderContas(container, actions) {
                 </td>
                 <td class="col-date"><input type="date" value="${c.data_vencimento||''}" onchange="updateContaField('${c.id}','data_vencimento',this.value)" readonly title="Clique em ... e Editar para alterar"></td>
                 <td class="col-date"><input type="date" value="${c.data_pagamento||''}" onchange="updateContaField('${c.id}','data_pagamento',this.value)" readonly title="Clique em ... e Editar para alterar"></td>
-                <td class="col-num"><input type="text" inputmode="decimal" value="${formatNumBR(c.valor_bruto)}" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)" onchange="updateContaNumeric('${c.id}','valor_bruto',parseNumBR(this.value))" readonly title="Clique em ... e Editar para alterar"></td>
+                <td class="col-num"><input type="text" inputmode="decimal" value="${formatNumBR(c.valor_bruto)}" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" onchange="updateContaNumeric('${c.id}','valor_bruto',parseNumBR(this.value))" readonly title="Clique em ... e Editar para alterar"></td>
                 <td class="col-status">
                   <span class="badge ${statusClass}">${statusLabels[c.status] || c.status}</span>
                   ${isParcial ? '<div style="font-size:10px;color:var(--gray-500);margin-top:3px;white-space:nowrap;">Pago: ' + formatBRL(c.valor_pago||0) + ' &middot; Saldo: ' + formatBRL((parseFloat(c.valor_bruto)||0) - (parseFloat(c.valor_pago)||0)) + '</div>' : ''}
@@ -4342,7 +4351,7 @@ function showPagamentoForm(id, target) {
           <div>
             <div class="form-group" style="gap:3px;">
               <label>Valor Pago Agora *</label>
-              <input type="text" inputmode="decimal" id="pg_valor" value="${valorSugerido === '' ? '' : formatNumBR(valorSugerido)}" placeholder="0,00" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value); atualizaSaldoPreview(${valorBruto}, ${jaPago})" oninput="atualizaSaldoPreview(${valorBruto}, ${jaPago})">
+              <input type="text" inputmode="decimal" id="pg_valor" value="${valorSugerido === '' ? '' : formatNumBR(valorSugerido)}" placeholder="0,00" required style="width:100%;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value); atualizaSaldoPreview(${valorBruto}, ${jaPago})" oninput="atualizaSaldoPreview(${valorBruto}, ${jaPago})">
             </div>
           </div>
           <div class="full">
@@ -4598,7 +4607,7 @@ function showContaForm(id) {
           <div>
             <div class="form-group" style="gap:3px;">
               <label>Valor Bruto *</label>
-              <input type="text" inputmode="decimal" id="ct_bruto" value="${formatNumBR(conta.valor_bruto)}" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)">
+              <input type="text" inputmode="decimal" id="ct_bruto" value="${formatNumBR(conta.valor_bruto)}" required style="width:100%;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)">
             </div>
           </div>
           <div>
@@ -4950,9 +4959,9 @@ function renderPedidoItensBody() {
     const t3 = idx * 3 + 3;
     return '<tr style="border-bottom:1px solid var(--gray-100);">' +
       '<td style="padding:8px 12px;"><select tabindex="' + t1 + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;font-family:inherit;background:white;" onchange="updatePedidoItemField(' + idx + ',\'produto_id\',this.value)">' + prodOptsHtml(it.produto_id) + '</select></td>' +
-      '<td style="padding:8px 12px;"><input type="number" min="0" step="1" tabindex="' + t2 + '" value="' + it.qtd + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;" onchange="updatePedidoItemField(' + idx + ',\'qtd\',this.value)"></td>' +
-      '<td style="padding:8px 12px;"><input type="text" inputmode="decimal" tabindex="' + t3 + '" value="' + formatNumBR(it.valor_unitario) + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;" onfocus="this.value=parseNumBR(this.value)||\'\'" onblur="this.value=formatNumBR(this.value); updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))"></td>' +
-      '<td style="padding:8px 12px;text-align:right;font-weight:700;color:var(--gray-700);font-size:12px;">' + formatBRL(totalItem) + '</td>' +
+      '<td style="padding:8px 12px;"><input type="number" min="0" step="1" tabindex="' + t2 + '" value="' + it.qtd + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;" oninput="updatePedidoItemField(' + idx + ',\'qtd\',this.value)"></td>' +
+      '<td style="padding:8px 12px;"><input type="text" inputmode="decimal" tabindex="' + t3 + '" value="' + formatNumBR(it.valor_unitario) + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(parseNumBR(this.value)); updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))" oninput="updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))"></td>' +
+      '<td id="pedItemTotal_' + idx + '" style="padding:8px 12px;text-align:right;font-weight:700;color:var(--gray-700);font-size:12px;">' + formatBRL(totalItem) + '</td>' +
       '<td style="padding:8px 12px;text-align:center;"><button type="button" onclick="removePedidoItemRow(' + idx + ')" style="background:var(--danger-bg);color:var(--danger);border:none;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;" title="Remover">&times;</button></td>' +
     '</tr>';
   }).join('');
@@ -4966,12 +4975,23 @@ function updatePedidoTotal() {
   if (totalEl) totalEl.textContent = formatBRL(totalPedido);
 }
 
+// Updates only the "total" cell of a row + the grand total, without touching
+// the rest of the table's DOM. This avoids rebuilding the <select>/<input>
+// elements (and stealing focus) every time the user types a qty or a price,
+// which is what was causing the fields to become "stuck" while typing and
+// the NotFoundError when clicking "Adicionar Produto" right after editing a value.
+function updatePedidoItemRowTotal(idx) {
+  const it = _pedidoItensEdit[idx];
+  if (!it) return;
+  const totalItem = (parseFloat(it.qtd) || 0) * (parseFloat(it.valor_unitario) || 0);
+  const cell = document.getElementById('pedItemTotal_' + idx);
+  if (cell) cell.textContent = formatBRL(totalItem);
+  updatePedidoTotal();
+}
+
 function updatePedidoItemField(idx, field, value) {
   if (!_pedidoItensEdit[idx]) return;
   _pedidoItensEdit[idx][field] = (field === 'qtd' || field === 'valor_unitario') ? (parseFloat(value) || 0) : value;
-
-  var focusIdx = idx;
-  var focusField = field === 'produto_id' ? 'qtd' : field;
 
   if (field === 'produto_id') {
     const clienteEl = document.getElementById('pd_cliente');
@@ -4982,20 +5002,24 @@ function updatePedidoItemField(idx, field, value) {
         _pedidoItensEdit[idx].valor_unitario = parseFloat(preco) || 0;
       }
     }
+
+    // Only a produto_id change needs a full re-render (the <select> options
+    // list and the price of that row can change). Re-render just this once
+    // and restore focus to the qty field of the same row.
+    renderPedidoItensBody();
+    setTimeout(function() {
+      var rows = document.querySelectorAll('#pedidoItensBody tr');
+      if (rows[idx]) {
+        var el = rows[idx].querySelectorAll('input')[0];
+        if (el) { el.focus(); el.select && el.select(); }
+      }
+    }, 30);
+  } else {
+    // qtd / valor_unitario: update the model and just the total cells in
+    // place. No innerHTML rebuild, so the field the user is actively typing
+    // in is never destroyed/recreated.
+    updatePedidoItemRowTotal(idx);
   }
-
-  renderPedidoItensBody();
-
-  setTimeout(function() {
-    var rows = document.querySelectorAll('#pedidoItensBody tr');
-    if (rows[focusIdx]) {
-      var el;
-      if (focusField === 'qtd') el = rows[focusIdx].querySelectorAll('input')[0];
-      else if (focusField === 'valor_unitario') el = rows[focusIdx].querySelectorAll('input')[1];
-      else if (focusField === 'produto_id') el = rows[focusIdx].querySelector('select');
-      if (el) { el.focus(); el.select && el.select(); }
-    }
-  }, 30);
 }
 
 function addPedidoItemRow() {
@@ -5284,7 +5308,7 @@ function addNewContaRow() {
             </td>
             <td class="col-date"><input type="date" id="new_ct_vencimento" oninput="updateNewContaStatus()"></td>
             <td class="col-date"><input type="date" id="new_ct_pagamento" oninput="updateNewContaStatus()"></td>
-            <td class="col-num"><input type="text" inputmode="decimal" id="new_ct_bruto" placeholder="0,00" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></td>
+            <td class="col-num"><input type="text" inputmode="decimal" id="new_ct_bruto" placeholder="0,00" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)"></td>
             <td class="col-status"><span id="new_ct_status_badge" class="badge badge-info">A Vencer</span></td>
             <td class="col-obs"><textarea id="new_ct_obs" placeholder="..."></textarea></td>
             <td class="col-acoes">
@@ -5922,7 +5946,7 @@ function registrarRecompraFidcTitulo(contaId) {
         <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px;">O título volta a ficar em aberto para cobrança do cliente, e será lançado um débito em <strong>Contas a Pagar</strong> referente ao valor de recompra pago ao FIDC.</div>
         <div class="form-grid" style="gap:10px;">
           <div><div class="form-group" style="gap:3px;"><label>Data da Recompra *</label><input type="date" id="rf_data" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
-          <div><div class="form-group" style="gap:3px;"><label>Valor da Recompra *</label><input type="text" inputmode="decimal" id="rf_valor" value="${formatNumBR(conta.valor_bruto)}" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor da Recompra *</label><input type="text" inputmode="decimal" id="rf_valor" value="${formatNumBR(conta.valor_bruto)}" required style="width:100%;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Vencimento do débito com o FIDC *</label><input type="date" id="rf_vencimento" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="rf_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></textarea></div></div>
         </div>
@@ -6026,7 +6050,7 @@ function showNovoTituloReceberForm() {
           <div class="full"><div class="form-group" style="gap:3px;"><label>Título *</label><input type="text" id="nt_titulo" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Cliente *</label><select id="nt_cliente" required style="width:100%;">${clienteOpts}</select></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Vencimento *</label><input type="date" id="nt_vencimento" required style="width:100%;"></div></div>
-          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="nt_valor" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="nt_valor" required style="width:100%;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Forma de Recebimento Prevista</label><select id="nt_forma" style="width:100%;"><option value="DINHEIRO">Dinheiro</option><option value="PIX" selected>Pix</option><option value="BOLETO">Boleto</option><option value="CARTAO">Cartão</option><option value="CHEQUE">Cheque</option><option value="TRANSFERENCIA">Transferência</option></select></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="nt_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></textarea></div></div>
         </div>
@@ -6078,7 +6102,7 @@ function showRecebivelForm(id) {
           <div class="full"><div class="form-group" style="gap:3px;"><label>Título *</label><input type="text" id="rt_titulo" value="${(c.titulo||'').replace(/"/g,'&quot;')}" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Cliente *</label><select id="rt_cliente" required style="width:100%;" ${c.pedido_id ? 'disabled' : ''}>${clienteOpts}</select></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Vencimento *</label><input type="date" id="rt_vencimento" value="${c.data_vencimento||''}" required style="width:100%;"></div></div>
-          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="rt_valor" value="${formatNumBR(c.valor_bruto)}" required style="width:100%;" ${bloqueado ? 'disabled' : ''} onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="rt_valor" value="${formatNumBR(c.valor_bruto)}" required style="width:100%;" ${bloqueado ? 'disabled' : ''} onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="rt_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">${c.observacao||''}</textarea></div></div>
           ${bloqueado ? '<div class="full" style="font-size:11px;color:var(--gray-500);">Para alterar valores recebidos, use as opções do menu &#8943; do título.</div>' : ''}
         </div>
@@ -6134,7 +6158,7 @@ function showRecebimentoForm(id, target) {
         </div>
         <div class="form-grid" style="gap:10px;">
           <div><div class="form-group" style="gap:3px;"><label>Data do Recebimento *</label><input type="date" id="rc_data" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
-          <div><div class="form-group" style="gap:3px;"><label>Valor Recebido Agora *</label><input type="text" inputmode="decimal" id="rc_valor" value="${valorSugerido === '' ? '' : formatNumBR(valorSugerido)}" placeholder="0,00" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value); atualizaSaldoPreviewReceb(${valorBruto}, ${jaRecebido})" oninput="atualizaSaldoPreviewReceb(${valorBruto}, ${jaRecebido})"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor Recebido Agora *</label><input type="text" inputmode="decimal" id="rc_valor" value="${valorSugerido === '' ? '' : formatNumBR(valorSugerido)}" placeholder="0,00" required style="width:100%;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value); atualizaSaldoPreviewReceb(${valorBruto}, ${jaRecebido})" oninput="atualizaSaldoPreviewReceb(${valorBruto}, ${jaRecebido})"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Forma de Recebimento *</label>
             <select id="rc_forma" required style="width:100%;" onchange="toggleCampoChequeReceb()">
               <option value="DINHEIRO">Dinheiro</option>
@@ -6248,7 +6272,7 @@ function showRecebimentoAdiantadoForm() {
         <div class="form-grid" style="gap:10px;">
           <div class="full"><div class="form-group" style="gap:3px;"><label>Cliente *</label><select id="ad_cliente" required style="width:100%;">${clienteOpts}</select></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Data do Recebimento *</label><input type="date" id="ad_data" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
-          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="ad_valor" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="ad_valor" required style="width:100%;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Forma de Recebimento *</label>
             <select id="ad_forma" required style="width:100%;" onchange="toggleCampoChequeAdiant()">
               <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix</option><option value="BOLETO">Boleto</option>
@@ -6486,7 +6510,7 @@ function showChequeForm(id) {
           <div><div class="form-group" style="gap:3px;"><label>Conta</label><input type="text" id="ec_conta" value="${(ch.conta||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Emitente</label><input type="text" id="ec_emitente" value="${(ch.emitente||'').replace(/"/g,'&quot;')}" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
           <div><div class="form-group" style="gap:3px;"><label>CPF/CNPJ Emitente</label><input type="text" id="ec_cpfcnpj" value="${(ch.cpf_cnpj_emitente||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
-          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="ec_valor" value="${formatNumBR(ch.valor)}" required style="width:100%;" onfocus="this.value=parseNumBR(this.value)||''" onblur="this.value=formatNumBR(this.value)"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Valor *</label><input type="text" inputmode="decimal" id="ec_valor" value="${formatNumBR(ch.valor)}" required style="width:100%;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)"></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Data de Compensação *</label><input type="date" id="ec_compensacao" value="${ch.data_compensacao||''}" required style="width:100%;"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="ec_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">${ch.observacao||''}</textarea></div></div>
         </div>
