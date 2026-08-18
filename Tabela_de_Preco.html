@@ -995,8 +995,8 @@ async function sbSave() {
   try {
     const receb = state.contasAReceber.map(c => ({
       id: c.id, tipo: c.tipo || 'NORMAL', pedido_id: c.pedido_id || '', cliente_id: c.cliente_id || '',
-      titulo: c.titulo || '', data_vencimento: c.data_vencimento || '',
-      data_recebimento: c.data_recebimento || '', valor_bruto: c.valor_bruto || 0,
+      titulo: c.titulo || '', data_vencimento: c.data_vencimento || null,
+      data_recebimento: c.data_recebimento || null, valor_bruto: c.valor_bruto || 0,
       valor_pago: c.valor_pago || 0, valor_utilizado: c.valor_utilizado || 0,
       forma_recebimento: c.forma_recebimento || '',
       status: c.status || 'A_VENCER', observacao: c.observacao || '',
@@ -1015,7 +1015,7 @@ async function sbSave() {
       id: c.id, conta_receber_id: c.conta_receber_id || '', cliente_id: c.cliente_id || '',
       numero_cheque: c.numero_cheque || '', banco: c.banco || '', agencia: c.agencia || '',
       conta: c.conta || '', emitente: c.emitente || '', cpf_cnpj_emitente: c.cpf_cnpj_emitente || '',
-      valor: c.valor || 0, data_recebimento: c.data_recebimento || '', data_compensacao: c.data_compensacao || '',
+      valor: c.valor || 0, data_recebimento: c.data_recebimento || null, data_compensacao: c.data_compensacao || null,
       status: c.status || 'EM_CARTEIRA', observacao: c.observacao || '',
       _deleted: c._deleted || false, updated_at: new Date().toISOString()
     }));
@@ -1029,7 +1029,7 @@ async function sbSave() {
   // Salva operações de desconto/cessão de recebíveis com FIDC
   try {
     const fidc = (state.operacoesFidc || []).map(o => ({
-      id: o.id, fidc_nome: o.fidc_nome || '', data_operacao: o.data_operacao || '',
+      id: o.id, fidc_nome: o.fidc_nome || '', data_operacao: o.data_operacao || null,
       contas_ids: JSON.stringify(o.contas_ids || []), valor_face: o.valor_face || 0,
       taxa_desconto: o.taxa_desconto || 0, valor_desconto: o.valor_desconto || 0,
       valor_liquido: o.valor_liquido || 0, conta_recebimento: o.conta_recebimento || '',
@@ -5672,7 +5672,7 @@ function renderContasReceber(container, actions) {
         <table class="grid-contas">
           <thead>
             <tr>
-              <th style="width:32px;text-align:center;"></th>
+              <th style="width:36px;text-align:center;font-size:9px;" title="Selecionar para desconto FIDC">FIDC</th>
               <th class="col-titulo">Título</th>
               <th class="col-forn">Cliente</th>
               <th class="col-date">Vencimento</th>
@@ -5718,6 +5718,7 @@ function renderContasReceber(container, actions) {
                       ${!isRecebido && !isCancelado && !isFidc && !isFidcLiquidado ? '<button class="dropdown-item" onclick="showRecebimentoForm(\'' + c.id + '\',\'RECEBIDO\')"><span class="dot" style="background:var(--success);"></span> Receber Total</button>' : ''}
                       ${!isParcial && !isRecebido && !isCancelado && !isFidc && !isFidcLiquidado ? '<button class="dropdown-item" onclick="showRecebimentoForm(\'' + c.id + '\',\'RECEBIDO_PARCIALMENTE\')"><span class="dot" style="background:var(--primary);"></span> Receber Parcial</button>' : ''}
                       ${isParcial ? '<button class="dropdown-item" onclick="showRecebimentoForm(\'' + c.id + '\',\'QUITAR\')"><span class="dot" style="background:var(--success);"></span> Quitar Saldo Restante</button>' : ''}
+                      ${elegivelFidc ? '<button class="dropdown-item" onclick="enviarUnicoParaFidc(\'' + c.id + '\')"><span class="dot" style="background:var(--warning);"></span> Enviar para Desconto FIDC</button>' : ''}
                       ${isFidc ? '<button class="dropdown-item" onclick="confirmarLiquidacaoFidcTitulo(\'' + c.id + '\')"><span class="dot" style="background:var(--success);"></span> Confirmar Pagamento pelo Sacado</button>' : ''}
                       ${isFidc ? '<button class="dropdown-item" onclick="registrarRecompraFidcTitulo(\'' + c.id + '\')"><span class="dot" style="background:var(--danger);"></span> Registrar Recompra/Chargeback</button>' : ''}
                       ${(isFidc || isFidcLiquidado) ? '<button class="dropdown-item" onclick="verOperacaoFidcDoTitulo(\'' + c.id + '\')">&#127974; Ver Operação FIDC</button>' : ''}
@@ -5740,6 +5741,15 @@ function renderContasReceber(container, actions) {
 function toggleFidcSelecionado(id) {
   if (_fidcSelecionados.has(id)) _fidcSelecionados.delete(id); else _fidcSelecionados.add(id);
   atualizaFidcSelectionBar();
+}
+
+// Atalho para enviar um único título direto pelo menu de ações, sem precisar
+// marcar a caixinha de seleção na tabela.
+function enviarUnicoParaFidc(id) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  _fidcSelecionados.clear();
+  _fidcSelecionados.add(id);
+  showEnviarFidcForm();
 }
 
 function limparSelecaoFidc() {
