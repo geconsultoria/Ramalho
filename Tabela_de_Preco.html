@@ -309,6 +309,7 @@ tbody tr:last-child td { border-bottom: none; }
   animation: slideUp 0.25s ease;
 }
 .modal.wide { max-width: 720px; }
+.modal.xwide { max-width: 980px; }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px 24px; border-bottom: 1px solid var(--gray-200);
@@ -1264,6 +1265,13 @@ function getPedidosAgrupados() {
   return ordem.map(function(pid) {
     var linhas = map[pid];
     var first = linhas[0];
+    var valorProdutos = linhas.reduce(function(s, it) { return s + (parseFloat(it.valor_total) || 0); }, 0);
+    var desconto = parseFloat(first.desconto) || 0;
+    var icmsPct = parseFloat(first.icms_pct) || 0;
+    var icmsValor = first.icms_valor !== undefined ? (parseFloat(first.icms_valor) || 0) : (valorProdutos * icmsPct / 100);
+    var ipiPct = parseFloat(first.ipi_pct) || 0;
+    var ipiValor = first.ipi_valor !== undefined ? (parseFloat(first.ipi_valor) || 0) : (valorProdutos * ipiPct / 100);
+    var frete = parseFloat(first.frete) || 0;
     return {
       pedido_id: pid,
       cliente_id: first.cliente_id,
@@ -1274,7 +1282,15 @@ function getPedidosAgrupados() {
       data_status: first.data_status || '',
       obs_status: first.obs_status || '',
       itens: linhas,
-      valor_pedido: linhas.reduce(function(s, it) { return s + (parseFloat(it.valor_total) || 0); }, 0)
+      valor_produtos: valorProdutos,
+      desconto: desconto,
+      icms_pct: icmsPct,
+      icms_valor: icmsValor,
+      ipi_pct: ipiPct,
+      ipi_valor: ipiValor,
+      frete: frete,
+      // valor_pedido = total final do pedido (produtos - desconto + ICMS + IPI + frete)
+      valor_pedido: valorProdutos - desconto + icmsValor + ipiValor + frete
     };
   });
 }
@@ -1460,7 +1476,8 @@ function toast(message, type = 'success') {
 function openModal(html, wide = false, lockOverlay = false) {
   const overlay = document.getElementById('modalOverlay');
   const content = document.getElementById('modalContent');
-  content.className = `modal${wide ? ' wide' : ''}`;
+  const sizeClass = wide === 'xwide' ? ' xwide' : (wide ? ' wide' : '');
+  content.className = `modal${sizeClass}`;
   content.innerHTML = html;
   overlay.onclick = lockOverlay ? null : function(e){ if(e.target===this) closeModal(); };
   overlay.classList.add('open');
@@ -4857,6 +4874,35 @@ function openPedidoModal(pedidoId) {
         </div>
       </div>
 
+      <div style="margin-top:16px;padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);">
+        <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128176; Resumo do Pedido</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
+          <div class="form-group" style="gap:4px;">
+            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Desconto (R$)</label>
+            <input type="text" inputmode="decimal" id="pd_desconto" value="${formatNumBR(pedido ? pedido.desconto : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+          </div>
+          <div class="form-group" style="gap:4px;">
+            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">ICMS (%)</label>
+            <input type="text" inputmode="decimal" id="pd_icms_pct" value="${formatNumBR(pedido ? pedido.icms_pct : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+          </div>
+          <div class="form-group" style="gap:4px;">
+            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">IPI (%)</label>
+            <input type="text" inputmode="decimal" id="pd_ipi_pct" value="${formatNumBR(pedido ? pedido.ipi_pct : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+          </div>
+          <div class="form-group" style="gap:4px;">
+            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Frete (R$)</label>
+            <input type="text" inputmode="decimal" id="pd_frete" value="${formatNumBR(pedido ? pedido.frete : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+          </div>
+        </div>
+        <div style="border-top:1px dashed var(--gray-300);padding-top:10px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--gray-600);">
+          <div style="display:flex;justify-content:space-between;"><span>Subtotal dos Produtos</span><strong id="pd_resumo_subtotal">R$ 0,00</strong></div>
+          <div style="display:flex;justify-content:space-between;"><span>(&minus;) Desconto</span><strong id="pd_resumo_desconto" style="color:var(--danger);">R$ 0,00</strong></div>
+          <div style="display:flex;justify-content:space-between;"><span>(&#43;) ICMS</span><strong id="pd_resumo_icms">R$ 0,00</strong></div>
+          <div style="display:flex;justify-content:space-between;"><span>(&#43;) IPI</span><strong id="pd_resumo_ipi">R$ 0,00</strong></div>
+          <div style="display:flex;justify-content:space-between;"><span>(&#43;) Frete</span><strong id="pd_resumo_frete">R$ 0,00</strong></div>
+        </div>
+      </div>
+
       ${!isEdit ? `
       <div style="margin-top:20px;padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);">
         <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128179; Condição de Pagamento &mdash; gera automaticamente as Contas a Receber</label>
@@ -4892,13 +4938,13 @@ function openPedidoModal(pedidoId) {
       </div>`}
     </div>
     <div class="modal-footer" style="border-top:1px solid var(--gray-200);background:var(--gray-50);padding:14px 24px;">
-      <div style="flex:1;font-size:14px;color:var(--gray-700);">Total: <strong id="pd_valor_total" style="font-size:22px;color:var(--primary);">R$ 0,00</strong></div>
+      <div style="flex:1;font-size:14px;color:var(--gray-700);">Total Geral: <strong id="pd_valor_total" style="font-size:22px;color:var(--primary);">R$ 0,00</strong></div>
       <div style="display:flex;gap:10px;">
         <button type="button" class="btn btn-ghost" onclick="closePedidoModal()">Cancelar</button>
         <button type="button" class="btn btn-primary" onclick="savePedidoModal()" style="padding:10px 24px;">&#10003; Salvar Pedido</button>
       </div>
     </div>
-  `, true);
+  `, 'xwide', true);
 
   renderPedidoItensBody();
   setTimeout(function() { var c = document.getElementById('pd_cliente'); if (c) c.focus(); }, 80);
@@ -4970,9 +5016,31 @@ function renderPedidoItensBody() {
 }
 
 function updatePedidoTotal() {
-  const totalPedido = _pedidoItensEdit.reduce(function(s, it) { return s + ((parseFloat(it.qtd) || 0) * (parseFloat(it.valor_unitario) || 0)); }, 0);
+  const subtotal = _pedidoItensEdit.reduce(function(s, it) { return s + ((parseFloat(it.qtd) || 0) * (parseFloat(it.valor_unitario) || 0)); }, 0);
+
+  const descontoEl = document.getElementById('pd_desconto');
+  const icmsPctEl = document.getElementById('pd_icms_pct');
+  const ipiPctEl = document.getElementById('pd_ipi_pct');
+  const freteEl = document.getElementById('pd_frete');
+
+  const desconto = descontoEl ? parseNumBR(descontoEl.value) : 0;
+  const icmsPct = icmsPctEl ? parseNumBR(icmsPctEl.value) : 0;
+  const ipiPct = ipiPctEl ? parseNumBR(ipiPctEl.value) : 0;
+  const frete = freteEl ? parseNumBR(freteEl.value) : 0;
+
+  const icmsValor = subtotal * (icmsPct / 100);
+  const ipiValor = subtotal * (ipiPct / 100);
+  const totalGeral = subtotal - desconto + icmsValor + ipiValor + frete;
+
+  const setTxt = function(id, val) { const el = document.getElementById(id); if (el) el.textContent = formatBRL(val); };
+  setTxt('pd_resumo_subtotal', subtotal);
+  setTxt('pd_resumo_desconto', desconto);
+  setTxt('pd_resumo_icms', icmsValor);
+  setTxt('pd_resumo_ipi', ipiValor);
+  setTxt('pd_resumo_frete', frete);
+
   const totalEl = document.getElementById('pd_valor_total');
-  if (totalEl) totalEl.textContent = formatBRL(totalPedido);
+  if (totalEl) totalEl.textContent = formatBRL(totalGeral);
 }
 
 // Updates only the "total" cell of a row + the grand total, without touching
@@ -5050,6 +5118,15 @@ function savePedidoModal() {
   const itensValidos = _pedidoItensEdit.filter(function(it) { return it.produto_id && (parseFloat(it.qtd) || 0) > 0; });
   if (!itensValidos.length) { toast('Adicione ao menos um produto com quantidade', 'error'); return; }
 
+  const subtotalProdutos = itensValidos.reduce(function(s, it) { return s + ((parseFloat(it.qtd) || 0) * (parseFloat(it.valor_unitario) || 0)); }, 0);
+  const desconto = parseNumBR((document.getElementById('pd_desconto') || {}).value || '0');
+  const icmsPct = parseNumBR((document.getElementById('pd_icms_pct') || {}).value || '0');
+  const ipiPct = parseNumBR((document.getElementById('pd_ipi_pct') || {}).value || '0');
+  const frete = parseNumBR((document.getElementById('pd_frete') || {}).value || '0');
+  const icmsValor = subtotalProdutos * (icmsPct / 100);
+  const ipiValor = subtotalProdutos * (ipiPct / 100);
+  const valorFinalPedido = subtotalProdutos - desconto + icmsValor + ipiValor + frete;
+
   const pid = pedidoId || uid();
   if (pedidoId) {
     state.pedidosVenda = state.pedidosVenda.filter(function(p) { return p.pedido_id !== pedidoId; });
@@ -5067,6 +5144,12 @@ function savePedidoModal() {
       qtd: parseFloat(it.qtd) || 0,
       valor_unitario: parseFloat(it.valor_unitario) || 0,
       valor_total: (parseFloat(it.qtd) || 0) * (parseFloat(it.valor_unitario) || 0),
+      desconto: desconto,
+      icms_pct: icmsPct,
+      icms_valor: icmsValor,
+      ipi_pct: ipiPct,
+      ipi_valor: ipiValor,
+      frete: frete,
       status_pedido: pedidoId ? (state.pedidosVenda.find(function(p) { return p.pedido_id === pedidoId; }) || {}).status_pedido || 'PENDENTE' : 'PENDENTE',
       data_status: pedidoId ? (state.pedidosVenda.find(function(p) { return p.pedido_id === pedidoId; }) || {}).data_status || '' : '',
       obs_status: pedidoId ? (state.pedidosVenda.find(function(p) { return p.pedido_id === pedidoId; }) || {}).obs_status || '' : ''
@@ -5075,8 +5158,9 @@ function savePedidoModal() {
 
   let msgReceb = '';
   if (!pedidoId) {
-    // Novo pedido: gera automaticamente as Contas a Receber conforme a condição de pagamento informada.
-    const valorPedidoTotal = itensValidos.reduce(function(s, it) { return s + ((parseFloat(it.qtd) || 0) * (parseFloat(it.valor_unitario) || 0)); }, 0);
+    // Novo pedido: gera automaticamente as Contas a Receber conforme a condição de pagamento informada,
+    // já considerando desconto, ICMS, IPI e frete no valor total.
+    const valorPedidoTotal = valorFinalPedido;
     const formaReceb = (document.getElementById('pd_forma_receb') || {}).value || 'PIX';
     const numParcelas = Math.max(1, parseInt((document.getElementById('pd_parcelas') || {}).value, 10) || 1);
     const primeiroVenc = (document.getElementById('pd_primeiro_vencimento') || {}).value || data_pedido;
