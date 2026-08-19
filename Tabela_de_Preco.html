@@ -6158,7 +6158,8 @@ function renderContasReceber(container, actions) {
       return (c.titulo || '').toLowerCase().includes(search) || clienteNome.includes(search) || (c.observacao || '').toLowerCase().includes(search);
     });
   }
-  if (statusFilter) filtered = filtered.filter(function(c) { return c.status === statusFilter; });
+  if (statusFilter === 'ADIANTAMENTO') filtered = filtered.filter(function(c) { return c.tipo === 'ADIANTAMENTO'; });
+  else if (statusFilter) filtered = filtered.filter(function(c) { return c.status === statusFilter; });
   if (dateStart) filtered = filtered.filter(function(c) { return c.data_vencimento >= dateStart; });
   if (dateEnd) filtered = filtered.filter(function(c) { return c.data_vencimento <= dateEnd; });
 
@@ -6205,6 +6206,9 @@ function renderContasReceber(container, actions) {
           <option value="VENCIDO" ${statusFilter==='VENCIDO'?'selected':''}>Vencido</option>
           <option value="RECEBIDO" ${statusFilter==='RECEBIDO'?'selected':''}>Recebido</option>
           <option value="RECEBIDO_PARCIALMENTE" ${statusFilter==='RECEBIDO_PARCIALMENTE'?'selected':''}>Parcialmente</option>
+          <option value="DESCONTADO_FIDC" ${statusFilter==='DESCONTADO_FIDC'?'selected':''}>Descontado FIDC</option>
+          <option value="LIQUIDADO_FIDC" ${statusFilter==='LIQUIDADO_FIDC'?'selected':''}>Liquidado (FIDC)</option>
+          <option value="ADIANTAMENTO" ${statusFilter==='ADIANTAMENTO'?'selected':''}>Adiantamento</option>
           <option value="CANCELADO" ${statusFilter==='CANCELADO'?'selected':''}>Cancelado</option>
         </select>
         <div style="display:flex;align-items:center;gap:4px;">
