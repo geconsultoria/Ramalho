@@ -1267,6 +1267,7 @@ let state = {
   recebivelStatusFilter: '',
   recebivelDateStart: '',
   recebivelDateEnd: '',
+  recebivelFidcFilter: '',
   chequeStatusFilter: ''
 };
 
@@ -6155,13 +6156,22 @@ function renderContasReceber(container, actions) {
     filtered = filtered.filter(function(c) {
       const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
       const clienteNome = cliente ? (cliente.nome || '').toLowerCase() : '';
-      return (c.titulo || '').toLowerCase().includes(search) || clienteNome.includes(search) || (c.observacao || '').toLowerCase().includes(search);
+      const opFidc = c.fidc_operacao_id ? (state.operacoesFidc || []).find(function(o) { return o.id === c.fidc_operacao_id; }) : null;
+      const fidcNome = opFidc ? (opFidc.fidc_nome || '').toLowerCase() : '';
+      return (c.titulo || '').toLowerCase().includes(search) || clienteNome.includes(search) || (c.observacao || '').toLowerCase().includes(search) || fidcNome.includes(search);
     });
   }
   if (statusFilter === 'ADIANTAMENTO') filtered = filtered.filter(function(c) { return c.tipo === 'ADIANTAMENTO'; });
   else if (statusFilter) filtered = filtered.filter(function(c) { return c.status === statusFilter; });
   if (dateStart) filtered = filtered.filter(function(c) { return c.data_vencimento >= dateStart; });
   if (dateEnd) filtered = filtered.filter(function(c) { return c.data_vencimento <= dateEnd; });
+  const fidcFilter = state.recebivelFidcFilter;
+  if (fidcFilter) {
+    filtered = filtered.filter(function(c) {
+      const opFidc = c.fidc_operacao_id ? (state.operacoesFidc || []).find(function(o) { return o.id === c.fidc_operacao_id; }) : null;
+      return opFidc && opFidc.fidc_nome === fidcFilter;
+    });
+  }
 
   filtered = filtered.sort(function(a, b) { return (a.data_vencimento || '').localeCompare(b.data_vencimento || ''); });
 
@@ -6211,6 +6221,12 @@ function renderContasReceber(container, actions) {
           <option value="ADIANTAMENTO" ${statusFilter==='ADIANTAMENTO'?'selected':''}>Adiantamento</option>
           <option value="CANCELADO" ${statusFilter==='CANCELADO'?'selected':''}>Cancelado</option>
         </select>
+        <select style="padding:7px 10px;border:1px solid var(--gray-300);border-radius:var(--radius-xs);font-size:12px;font-family:inherit;background:white;" onchange="state.recebivelFidcFilter=this.value;render()">
+          <option value="">Todas as FIDCs</option>
+          ${Array.from(new Set(getActiveOperacoesFidc().map(function(o) { return o.fidc_nome; }).filter(Boolean))).sort(function(a,b){return a.localeCompare(b,'pt-BR');}).map(function(nome) {
+            return '<option value="' + escapeHtml(nome) + '" ' + (fidcFilter===nome?'selected':'') + '>' + escapeHtml(nome) + '</option>';
+          }).join('')}
+        </select>
         <div style="display:flex;align-items:center;gap:4px;">
           <input type="date" value="${dateStart}" onchange="state.recebivelDateStart=this.value;render()" style="padding:6px 8px;border:1px solid var(--gray-300);border-radius:var(--radius-xs);font-size:12px;font-family:inherit;">
           <span style="color:var(--gray-400);font-size:12px;">até</span>
@@ -6257,9 +6273,11 @@ function renderContasReceber(container, actions) {
               const elegivelFidc = c.tipo !== 'ADIANTAMENTO' && (isAVencer || isVencido);
               const cheque = c.forma_recebimento === 'CHEQUE' ? getActiveCheques().find(function(ch) { return ch.conta_receber_id === c.id; }) : null;
               const parcelaInfo = extractParcelaInfo(c.titulo);
+              const opFidcLinha = c.fidc_operacao_id ? (state.operacoesFidc || []).find(function(o) { return o.id === c.fidc_operacao_id; }) : null;
+              const fidcBadgeLabel = opFidcLinha ? opFidcLinha.fidc_nome : 'FIDC';
               return `<tr>
                 <td style="text-align:center;">${elegivelFidc ? '<input type="checkbox" ' + (_fidcSelecionados.has(c.id) ? 'checked' : '') + ' onchange="toggleFidcSelecionado(\'' + c.id + '\')">' : ''}</td>
-                <td class="col-titulo" style="font-weight:600;" title="${escapeHtml(c.titulo||'')}">${escapeHtml(parcelaInfo.tituloBase)}${c.tipo==='ADIANTAMENTO' ? ' <span class="badge badge-info" style="font-size:9px;">ADIANT.</span>' : ''}${(isFidc||isFidcLiquidado) ? ' <span class="badge badge-warning" style="font-size:9px;">FIDC</span>' : ''}</td>
+                <td class="col-titulo" style="font-weight:600;" title="${escapeHtml(c.titulo||'')}">${escapeHtml(parcelaInfo.tituloBase)}${c.tipo==='ADIANTAMENTO' ? ' <span class="badge badge-info" style="font-size:9px;">ADIANT.</span>' : ''}${(isFidc||isFidcLiquidado) ? ' <span class="badge badge-warning" style="font-size:9px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;display:inline-block;" title="' + escapeHtml(fidcBadgeLabel) + '">' + escapeHtml(fidcBadgeLabel) + '</span>' : ''}</td>
                 <td style="text-align:center;font-size:12px;color:var(--gray-600);">${parcelaInfo.parcela || '-'}</td>
                 <td class="col-forn" title="${escapeHtml(clienteNome)}">${escapeHtml(clienteNome)}</td>
                 <td class="col-date">${formatDateBR(c.data_vencimento)}</td>
@@ -6586,12 +6604,20 @@ function atualizaStatusOperacaoFidc(opId) {
   if (todosLiquidados) op.status = 'LIQUIDADA';
 }
 
-function showOperacoesFidcModal(highlightOpId) {
-  const ops = getActiveOperacoesFidc().sort(function(a, b) { return (b.data_operacao || '').localeCompare(a.data_operacao || ''); });
+function showOperacoesFidcModal(highlightOpId, searchTerm) {
+  const search = (searchTerm || '').toLowerCase();
+  let ops = getActiveOperacoesFidc().sort(function(a, b) { return (b.data_operacao || '').localeCompare(a.data_operacao || ''); });
+  if (search) {
+    ops = ops.filter(function(o) { return (o.fidc_nome || '').toLowerCase().includes(search); });
+  }
   openModal(`
     <div class="modal-header"><h3>&#127974; Operações de Desconto FIDC</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
-      ${ops.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--gray-400);font-size:13px;">Nenhuma operação registrada ainda. Selecione títulos em Contas a Receber e clique em "Enviar para Desconto FIDC".</div>' : ''}
+      <div class="search-box" style="margin-bottom:14px;">
+        <span class="icon">&#128270;</span>
+        <input type="text" id="sOpFidc" placeholder="Buscar por nome da FIDC..." value="${escapeHtml(searchTerm || '')}" oninput="showOperacoesFidcModal('${highlightOpId || ''}', this.value)">
+      </div>
+      ${ops.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--gray-400);font-size:13px;">' + (search ? 'Nenhuma operação encontrada para "' + escapeHtml(searchTerm) + '".' : 'Nenhuma operação registrada ainda. Selecione títulos em Contas a Receber e clique em "Enviar para Desconto FIDC".') + '</div>' : ''}
       ${ops.map(function(op) {
         const titulosDaOp = getActiveRecebiveis().filter(function(c) { return c.fidc_operacao_id === op.id; });
         const statusClass = fidcOpStatusColors[op.status] || 'badge-info';
@@ -6617,6 +6643,10 @@ function showOperacoesFidcModal(highlightOpId) {
     </div>
     <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
   `);
+  setTimeout(function() {
+    var el = document.getElementById('sOpFidc');
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 10);
 }
 
 // ===== Novo título avulso (não vinculado a pedido) =====
