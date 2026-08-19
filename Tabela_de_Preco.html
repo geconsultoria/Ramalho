@@ -310,6 +310,11 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .modal.wide { max-width: 720px; }
 .modal.xwide { max-width: 980px; }
+.modal.fullscreen {
+  width: 96vw; max-width: 1400px; height: 94vh; max-height: 94vh;
+  display: flex; flex-direction: column;
+}
+.modal.fullscreen .modal-body { flex: 1 1 auto; min-height: 0; }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px 24px; border-bottom: 1px solid var(--gray-200);
@@ -436,6 +441,8 @@ tbody tr:last-child td { border-bottom: none; }
   .charts-grid { grid-template-columns: 1fr !important; }
   .form-grid { grid-template-columns: 1fr; }
   .modal { max-width: 100%; margin: 10px; }
+  .modal.fullscreen { width: 100vw; max-width: 100vw; height: 100vh; max-height: 100vh; margin: 0; border-radius: 0; }
+  .pedido-grid { grid-template-columns: 1fr !important; }
   .client-grid { grid-template-columns: 1fr; }
 
   html, body { overflow-x: hidden; max-width: 100vw; }
@@ -1289,6 +1296,7 @@ function getPedidosAgrupados() {
       ipi_pct: ipiPct,
       ipi_valor: ipiValor,
       frete: frete,
+      regime_tributario: first.regime_tributario || '',
       // valor_pedido = total final do pedido (produtos - desconto + ICMS + IPI + frete)
       valor_pedido: valorProdutos - desconto + icmsValor + ipiValor + frete
     };
@@ -1476,7 +1484,7 @@ function toast(message, type = 'success') {
 function openModal(html, wide = false, lockOverlay = false) {
   const overlay = document.getElementById('modalOverlay');
   const content = document.getElementById('modalContent');
-  const sizeClass = wide === 'xwide' ? ' xwide' : (wide ? ' wide' : '');
+  const sizeClass = wide === 'xwide' ? ' xwide' : (wide === 'fullscreen' ? ' fullscreen' : (wide ? ' wide' : ''));
   content.className = `modal${sizeClass}`;
   content.innerHTML = html;
   overlay.onclick = lockOverlay ? null : function(e){ if(e.target===this) closeModal(); };
@@ -4832,110 +4840,133 @@ function openPedidoModal(pedidoId) {
       <h3 style="font-size:17px;color:var(--gray-800);">${isEdit ? '&#9998; Editar Pedido de Venda' : '&#43; Novo Pedido de Venda'}</h3>
       <button class="modal-close" onclick="closePedidoModal()">&times;</button>
     </div>
-    <div class="modal-body" style="padding:18px 24px;max-height:80vh;overflow-y:auto;">
-      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:14px;margin-bottom:20px;">
-        <div class="form-group" style="gap:4px;">
-          <label style="font-size:12px;font-weight:600;color:var(--gray-600);">Cliente *</label>
-          <select id="pd_cliente" onchange="onPedidoClienteChange()" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;background:white;">${clienteOptsHtml(pedido ? pedido.cliente_id : '')}</select>
-        </div>
-        <div class="form-group" style="gap:4px;">
-          <label style="font-size:12px;font-weight:600;color:var(--gray-600);">N&ordm; Pedido *</label>
-          <input type="text" id="pd_numero" value="${pedido ? (pedido.numero_pedido || '') : ''}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;" placeholder="N&ordm; do pedido">
-        </div>
-        <div class="form-group" style="gap:4px;">
-          <label style="font-size:12px;font-weight:600;color:var(--gray-600);">Data Pedido *</label>
-          <input type="date" id="pd_data_pedido" value="${pedido ? (pedido.data_pedido || '') : new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
-        </div>
-        <div class="form-group" style="gap:4px;">
-          <label style="font-size:12px;font-weight:600;color:var(--gray-600);">Previsão Entrega</label>
-          <input type="date" id="pd_data_entrega" value="${pedido ? (pedido.data_entrega || '') : ''}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
-        </div>
-      </div>
+    <div class="modal-body" style="padding:18px 24px;overflow-y:auto;display:flex;flex-direction:column;">
+      <div class="pedido-grid" style="display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;flex:1;min-height:0;">
 
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <label style="font-size:13px;font-weight:700;color:var(--gray-700);">Produtos do Pedido</label>
-        <button type="button" class="btn btn-sm btn-primary" onclick="addPedidoItemRow()" style="padding:6px 14px;">&#43; Adicionar Produto</button>
-      </div>
-      <div id="pedidoItensWrap" style="border:1px solid var(--gray-200);border-radius:var(--radius);overflow:hidden;">
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:var(--gray-50);">
-              <th style="text-align:left;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;">Produto</th>
-              <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:90px;">Qtd</th>
-              <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:130px;">Vl. Unit&aacute;rio</th>
-              <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:130px;">Vl. Total</th>
-              <th style="width:44px;"></th>
-            </tr>
-          </thead>
-          <tbody id="pedidoItensBody"></tbody>
-        </table>
-        <div id="pedidoItensEmpty" style="text-align:center;padding:32px 16px;color:var(--gray-400);font-size:13px;display:none;">
-          Nenhum produto adicionado. Clique em <strong>&#43; Adicionar Produto</strong> para come&ccedil;ar.
-        </div>
-      </div>
+        <div style="display:flex;flex-direction:column;min-height:0;">
+          <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:14px;margin-bottom:16px;">
+            <div class="form-group" style="gap:4px;">
+              <label style="font-size:12px;font-weight:600;color:var(--gray-600);">Cliente *</label>
+              <select id="pd_cliente" onchange="onPedidoClienteChange()" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;background:white;">${clienteOptsHtml(pedido ? pedido.cliente_id : '')}</select>
+            </div>
+            <div class="form-group" style="gap:4px;">
+              <label style="font-size:12px;font-weight:600;color:var(--gray-600);">N&ordm; Pedido *</label>
+              <input type="text" id="pd_numero" value="${pedido ? (pedido.numero_pedido || '') : ''}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;" placeholder="N&ordm; do pedido">
+            </div>
+            <div class="form-group" style="gap:4px;">
+              <label style="font-size:12px;font-weight:600;color:var(--gray-600);">Data Pedido *</label>
+              <input type="date" id="pd_data_pedido" value="${pedido ? (pedido.data_pedido || '') : new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
+            </div>
+            <div class="form-group" style="gap:4px;">
+              <label style="font-size:12px;font-weight:600;color:var(--gray-600);">Previsão Entrega</label>
+              <input type="date" id="pd_data_entrega" value="${pedido ? (pedido.data_entrega || '') : ''}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
+            </div>
+          </div>
 
-      <div style="margin-top:16px;padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);">
-        <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128176; Resumo do Pedido</label>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
-          <div class="form-group" style="gap:4px;">
-            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Desconto (R$)</label>
-            <input type="text" inputmode="decimal" id="pd_desconto" value="${formatNumBR(pedido ? pedido.desconto : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <label style="font-size:13px;font-weight:700;color:var(--gray-700);">Produtos do Pedido</label>
+            <button type="button" id="pedAddProdutoBtn" class="btn btn-sm btn-primary" onclick="addPedidoItemRow()" style="padding:6px 14px;">&#43; Adicionar Produto</button>
           </div>
-          <div class="form-group" style="gap:4px;">
-            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">ICMS (%)</label>
-            <input type="text" inputmode="decimal" id="pd_icms_pct" value="${formatNumBR(pedido ? pedido.icms_pct : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
-          </div>
-          <div class="form-group" style="gap:4px;">
-            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">IPI (%)</label>
-            <input type="text" inputmode="decimal" id="pd_ipi_pct" value="${formatNumBR(pedido ? pedido.ipi_pct : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
-          </div>
-          <div class="form-group" style="gap:4px;">
-            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Frete (R$)</label>
-            <input type="text" inputmode="decimal" id="pd_frete" value="${formatNumBR(pedido ? pedido.frete : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+          <div id="pedidoItensWrap" style="border:1px solid var(--gray-200);border-radius:var(--radius);overflow-y:auto;flex:1;min-height:160px;">
+            <table style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="background:var(--gray-50);position:sticky;top:0;z-index:1;">
+                  <th style="text-align:left;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;">Produto</th>
+                  <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:90px;">Qtd</th>
+                  <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:130px;">Vl. Unit&aacute;rio</th>
+                  <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:130px;">Vl. Total</th>
+                  <th style="width:44px;"></th>
+                </tr>
+              </thead>
+              <tbody id="pedidoItensBody"></tbody>
+            </table>
+            <div id="pedidoItensEmpty" style="text-align:center;padding:32px 16px;color:var(--gray-400);font-size:13px;display:none;">
+              Nenhum produto adicionado. Clique em <strong>&#43; Adicionar Produto</strong> para come&ccedil;ar.
+            </div>
           </div>
         </div>
-        <div style="border-top:1px dashed var(--gray-300);padding-top:10px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--gray-600);">
-          <div style="display:flex;justify-content:space-between;"><span>Subtotal dos Produtos</span><strong id="pd_resumo_subtotal">R$ 0,00</strong></div>
-          <div style="display:flex;justify-content:space-between;"><span>(&minus;) Desconto</span><strong id="pd_resumo_desconto" style="color:var(--danger);">R$ 0,00</strong></div>
-          <div style="display:flex;justify-content:space-between;"><span>(&#43;) ICMS</span><strong id="pd_resumo_icms">R$ 0,00</strong></div>
-          <div style="display:flex;justify-content:space-between;"><span>(&#43;) IPI</span><strong id="pd_resumo_ipi">R$ 0,00</strong></div>
-          <div style="display:flex;justify-content:space-between;"><span>(&#43;) Frete</span><strong id="pd_resumo_frete">R$ 0,00</strong></div>
-        </div>
-      </div>
 
-      ${!isEdit ? `
-      <div style="margin-top:20px;padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);">
-        <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128179; Condição de Pagamento &mdash; gera automaticamente as Contas a Receber</label>
-        <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:12px;">
-          <div class="form-group" style="gap:4px;">
-            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Forma de Recebimento</label>
-            <select id="pd_forma_receb" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;background:white;">
-              <option value="DINHEIRO">Dinheiro</option>
-              <option value="PIX" selected>Pix</option>
-              <option value="BOLETO">Boleto</option>
-              <option value="CARTAO">Cartão</option>
-              <option value="CHEQUE">Cheque</option>
-              <option value="TRANSFERENCIA">Transferência/TED</option>
-            </select>
+        <div style="display:flex;flex-direction:column;gap:16px;overflow-y:auto;min-height:0;">
+          <div style="padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);">
+            <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128176; Resumo do Pedido</label>
+
+            <div class="form-group" style="gap:4px;margin-bottom:10px;">
+              <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Regime Tribut&aacute;rio (preenche ICMS/IPI automaticamente)</label>
+              <select id="pd_regime_tributario" onchange="aplicarRegimeTributario()" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;background:white;">
+                <option value="">Manual (n&atilde;o preencher)</option>
+                <option value="SIMPLES">Simples Nacional</option>
+                <option value="PRESUMIDO">Lucro Presumido</option>
+                <option value="REAL">Lucro Real</option>
+              </select>
+              <div style="font-size:10.5px;color:var(--gray-400);margin-top:2px;">Percentuais de refer&ecirc;ncia &mdash; ajuste conforme NCM/UF da opera&ccedil;&atilde;o, se necess&aacute;rio.</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+              <div class="form-group" style="gap:4px;">
+                <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Desconto (R$)</label>
+                <input type="text" inputmode="decimal" id="pd_desconto" value="${formatNumBR(pedido ? pedido.desconto : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+              </div>
+              <div class="form-group" style="gap:4px;">
+                <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Frete (R$)</label>
+                <input type="text" inputmode="decimal" id="pd_frete" value="${formatNumBR(pedido ? pedido.frete : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+              </div>
+              <div class="form-group" style="gap:4px;">
+                <label style="font-size:11px;font-weight:600;color:var(--gray-500);">ICMS (%)</label>
+                <input type="text" inputmode="decimal" id="pd_icms_pct" value="${formatNumBR(pedido ? pedido.icms_pct : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+              </div>
+              <div class="form-group" style="gap:4px;">
+                <label style="font-size:11px;font-weight:600;color:var(--gray-500);">IPI (%)</label>
+                <input type="text" inputmode="decimal" id="pd_ipi_pct" value="${formatNumBR(pedido ? pedido.ipi_pct : 0)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;text-align:right;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(this.value)" oninput="updatePedidoTotal()">
+              </div>
+            </div>
+
+            <div style="border-top:1px dashed var(--gray-300);padding-top:10px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--gray-600);">
+              <div style="display:flex;justify-content:space-between;"><span>Subtotal dos Produtos</span><strong id="pd_resumo_subtotal">R$ 0,00</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span>(&minus;) Desconto</span><strong id="pd_resumo_desconto" style="color:var(--danger);">R$ 0,00</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span>(&#43;) ICMS</span><strong id="pd_resumo_icms">R$ 0,00</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span>(&#43;) IPI</span><strong id="pd_resumo_ipi">R$ 0,00</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span>(&#43;) Frete</span><strong id="pd_resumo_frete">R$ 0,00</strong></div>
+            </div>
           </div>
-          <div class="form-group" style="gap:4px;">
-            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Nº de Parcelas</label>
-            <input type="number" min="1" max="36" id="pd_parcelas" value="1" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
-          </div>
-          <div class="form-group" style="gap:4px;">
-            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">1º Vencimento</label>
-            <input type="date" id="pd_primeiro_vencimento" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
-          </div>
-          <div class="form-group" style="gap:4px;">
-            <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Intervalo (dias)</label>
-            <input type="number" min="1" id="pd_intervalo_parcelas" value="30" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
-          </div>
+
+          ${!isEdit ? `
+          <div style="padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);">
+            <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128179; Condi&ccedil;&atilde;o de Pagamento</label>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div class="form-group" style="gap:4px;">
+                <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Forma de Recebimento</label>
+                <select id="pd_forma_receb" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;background:white;">
+                  <option value="DINHEIRO">Dinheiro</option>
+                  <option value="PIX" selected>Pix</option>
+                  <option value="BOLETO">Boleto</option>
+                  <option value="CARTAO">Cartão</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="TRANSFERENCIA">Transferência/TED</option>
+                </select>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div class="form-group" style="gap:4px;">
+                  <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Nº de Parcelas</label>
+                  <input type="number" min="1" max="36" id="pd_parcelas" value="1" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
+                </div>
+                <div class="form-group" style="gap:4px;">
+                  <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Intervalo (dias)</label>
+                  <input type="number" min="1" id="pd_intervalo_parcelas" value="30" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
+                </div>
+              </div>
+              <div class="form-group" style="gap:4px;">
+                <label style="font-size:11px;font-weight:600;color:var(--gray-500);">1º Vencimento</label>
+                <input type="date" id="pd_primeiro_vencimento" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Ao salvar, o sistema lança automaticamente os títulos correspondentes em <strong>Contas a Receber</strong>.</div>
+          </div>` : `
+          <div style="padding:10px 14px;background:var(--primary-bg);border-radius:var(--radius-xs);font-size:12px;color:var(--primary-dark);">
+            &#8505; Este pedido já possui Contas a Receber vinculadas (se houver). Para ajustar os títulos financeiros, use a tela <strong>Contas a Receber</strong>.
+          </div>`}
         </div>
-        <div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Ao salvar, o sistema lança automaticamente os títulos correspondentes em <strong>Contas a Receber</strong>.</div>
-      </div>` : `
-      <div style="margin-top:16px;padding:10px 14px;background:var(--primary-bg);border-radius:var(--radius-xs);font-size:12px;color:var(--primary-dark);">
-        &#8505; Este pedido já possui Contas a Receber vinculadas (se houver). Para ajustar os títulos financeiros, use a tela <strong>Contas a Receber</strong>.
-      </div>`}
+
+      </div>
     </div>
     <div class="modal-footer" style="border-top:1px solid var(--gray-200);background:var(--gray-50);padding:14px 24px;">
       <div style="flex:1;font-size:14px;color:var(--gray-700);">Total Geral: <strong id="pd_valor_total" style="font-size:22px;color:var(--primary);">R$ 0,00</strong></div>
@@ -4944,9 +4975,13 @@ function openPedidoModal(pedidoId) {
         <button type="button" class="btn btn-primary" onclick="savePedidoModal()" style="padding:10px 24px;">&#10003; Salvar Pedido</button>
       </div>
     </div>
-  `, 'xwide', true);
+  `, 'fullscreen', true);
 
   renderPedidoItensBody();
+  if (isEdit && pedido.regime_tributario) {
+    const regEl = document.getElementById('pd_regime_tributario');
+    if (regEl) regEl.value = pedido.regime_tributario;
+  }
   setTimeout(function() { var c = document.getElementById('pd_cliente'); if (c) c.focus(); }, 80);
 }
 
@@ -4993,6 +5028,7 @@ function renderPedidoItensBody() {
     body.innerHTML = '';
     if (empty) empty.style.display = 'block';
     updatePedidoTotal();
+    setPedAddBtnTabindex(0);
     return;
   }
 
@@ -5008,10 +5044,43 @@ function renderPedidoItensBody() {
       '<td style="padding:8px 12px;"><input type="number" min="0" step="1" tabindex="' + t2 + '" value="' + it.qtd + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;" oninput="updatePedidoItemField(' + idx + ',\'qtd\',this.value)"></td>' +
       '<td style="padding:8px 12px;"><input type="text" inputmode="decimal" tabindex="' + t3 + '" value="' + formatNumBR(it.valor_unitario) + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(parseNumBR(this.value)); updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))" oninput="updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))"></td>' +
       '<td id="pedItemTotal_' + idx + '" style="padding:8px 12px;text-align:right;font-weight:700;color:var(--gray-700);font-size:12px;">' + formatBRL(totalItem) + '</td>' +
-      '<td style="padding:8px 12px;text-align:center;"><button type="button" onclick="removePedidoItemRow(' + idx + ')" style="background:var(--danger-bg);color:var(--danger);border:none;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;" title="Remover">&times;</button></td>' +
+      '<td style="padding:8px 12px;text-align:center;"><button type="button" tabindex="-1" onclick="removePedidoItemRow(' + idx + ')" style="background:var(--danger-bg);color:var(--danger);border:none;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;" title="Remover">&times;</button></td>' +
     '</tr>';
   }).join('');
 
+  // O botão "+ Adicionar Produto" recebe o próximo tabindex da sequência, logo
+  // após o campo "Vl. Unitário" da última linha — assim, ao terminar de digitar
+  // o valor e apertar Tab, o foco vai direto para esse botão.
+  setPedAddBtnTabindex(_pedidoItensEdit.length * 3 + 1);
+
+  updatePedidoTotal();
+}
+
+function setPedAddBtnTabindex(idx) {
+  const btn = document.getElementById('pedAddProdutoBtn');
+  if (btn) btn.tabIndex = idx;
+}
+
+// Percentuais de referência por regime tributário. São valores padrão/genéricos
+// para agilizar o preenchimento — a alíquota real de ICMS depende do estado (UF)
+// e a de IPI depende do NCM do produto, então o usuário pode sempre ajustar
+// manualmente os campos depois de aplicados.
+const REGIME_TRIBUTARIO_DEFAULTS = {
+  SIMPLES:   { icms: 0,  ipi: 0  }, // Simples Nacional: tributos recolhidos via DAS, geralmente sem destaque de ICMS/IPI na nota
+  PRESUMIDO: { icms: 18, ipi: 5  }, // Lucro Presumido: referência ICMS 18% (média interestadual) + IPI 5%
+  REAL:      { icms: 18, ipi: 10 }  // Lucro Real: referência ICMS 18% + IPI 10%
+};
+
+function aplicarRegimeTributario() {
+  const sel = document.getElementById('pd_regime_tributario');
+  const regime = sel ? sel.value : '';
+  const cfg = REGIME_TRIBUTARIO_DEFAULTS[regime];
+  if (!cfg) return; // "Manual" selecionado: não mexe nos campos já preenchidos
+
+  const icmsEl = document.getElementById('pd_icms_pct');
+  const ipiEl = document.getElementById('pd_ipi_pct');
+  if (icmsEl) icmsEl.value = formatNumBR(cfg.icms);
+  if (ipiEl) ipiEl.value = formatNumBR(cfg.ipi);
   updatePedidoTotal();
 }
 
@@ -5123,6 +5192,7 @@ function savePedidoModal() {
   const icmsPct = parseNumBR((document.getElementById('pd_icms_pct') || {}).value || '0');
   const ipiPct = parseNumBR((document.getElementById('pd_ipi_pct') || {}).value || '0');
   const frete = parseNumBR((document.getElementById('pd_frete') || {}).value || '0');
+  const regimeTributario = (document.getElementById('pd_regime_tributario') || {}).value || '';
   const icmsValor = subtotalProdutos * (icmsPct / 100);
   const ipiValor = subtotalProdutos * (ipiPct / 100);
   const valorFinalPedido = subtotalProdutos - desconto + icmsValor + ipiValor + frete;
@@ -5150,6 +5220,7 @@ function savePedidoModal() {
       ipi_pct: ipiPct,
       ipi_valor: ipiValor,
       frete: frete,
+      regime_tributario: regimeTributario,
       status_pedido: pedidoId ? (state.pedidosVenda.find(function(p) { return p.pedido_id === pedidoId; }) || {}).status_pedido || 'PENDENTE' : 'PENDENTE',
       data_status: pedidoId ? (state.pedidosVenda.find(function(p) { return p.pedido_id === pedidoId; }) || {}).data_status || '' : '',
       obs_status: pedidoId ? (state.pedidosVenda.find(function(p) { return p.pedido_id === pedidoId; }) || {}).obs_status || '' : ''
