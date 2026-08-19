@@ -651,6 +651,10 @@ tbody tr:last-child td { border-bottom: none; }
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
           Produtos <span class="badge" id="productBadge" style="margin-left:auto;">0</span>
         </a>
+        <a data-tab="bancosFidc" onclick="switchTab('bancosFidc')">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4 18h16M6 18v-7m4 7v-7m4 7v-7m4 7v-7M4 11l8-6 8 6M4 11h16"/></svg>
+          Bancos e FIDC <span class="badge" id="bancoFidcBadge" style="margin-left:auto;">0</span>
+        </a>
       </div>
     </div>
 
@@ -1060,6 +1064,32 @@ async function sbSave() {
     console.warn('Supabase save error [operacoes_fidc]:', e.message);
   }
 
+  // Salva cadastro de Bancos
+  try {
+    const bancos = (state.bancos || []).map(b => ({
+      id: b.id, nome: b.nome || '', codigo: b.codigo || '', agencia: b.agencia || '',
+      conta: b.conta || '', tipo_conta: b.tipo_conta || '', titular: b.titular || '',
+      observacao: b.observacao || '', _deleted: b._deleted || false, updated_at: new Date().toISOString()
+    }));
+    if (bancos.length) await SB.upsert('bancos', bancos);
+  } catch(e) {
+    erros.push('bancos');
+    console.warn('Supabase save error [bancos] (tabela pode não existir ainda):', e.message);
+  }
+
+  // Salva cadastro de FIDCs
+  try {
+    const fidcsCad = (state.fidcs || []).map(f => ({
+      id: f.id, nome: f.nome || '', cnpj: f.cnpj || '', contato: f.contato || '',
+      telefone: f.telefone || '', email: f.email || '', taxa_padrao: f.taxa_padrao || 0,
+      observacao: f.observacao || '', _deleted: f._deleted || false, updated_at: new Date().toISOString()
+    }));
+    if (fidcsCad.length) await SB.upsert('fidcs', fidcsCad);
+  } catch(e) {
+    erros.push('fidcs');
+    console.warn('Supabase save error [fidcs] (tabela pode não existir ainda):', e.message);
+  }
+
   if (erros.length === 0) {
     console.log('Supabase: dados salvos com sucesso');
   } else {
@@ -1076,7 +1106,9 @@ async function sbLoad() {
     let recebFalhou = false;
     let chequesFalhou = false;
     let fidcFalhou = false;
-    const [produtos, clientes, precos, atribuicoes, fornecedores, contas, pedidos, recebiveis, cheques, fidcOps] = await Promise.all([
+    let bancosFalhou = false;
+    let fidcsFalhou = false;
+    const [produtos, clientes, precos, atribuicoes, fornecedores, contas, pedidos, recebiveis, cheques, fidcOps, bancosCad, fidcsCad] = await Promise.all([
       SB.get('produtos'),
       SB.get('clientes'),
       SB.get('precos'),
@@ -1086,7 +1118,9 @@ async function sbLoad() {
       SB.get('pedidos_venda').catch(e => { pedidosFalhou = true; console.warn('Supabase GET pedidos_venda falhou:', e.message); return []; }),
       SB.get('contas_a_receber').catch(e => { recebFalhou = true; console.warn('Supabase GET contas_a_receber falhou:', e.message); return []; }),
       SB.get('cheques').catch(e => { chequesFalhou = true; console.warn('Supabase GET cheques falhou:', e.message); return []; }),
-      SB.get('operacoes_fidc').catch(e => { fidcFalhou = true; console.warn('Supabase GET operacoes_fidc falhou:', e.message); return []; })
+      SB.get('operacoes_fidc').catch(e => { fidcFalhou = true; console.warn('Supabase GET operacoes_fidc falhou:', e.message); return []; }),
+      SB.get('bancos').catch(e => { bancosFalhou = true; console.warn('Supabase GET bancos falhou (tabela pode não existir ainda):', e.message); return []; }),
+      SB.get('fidcs').catch(e => { fidcsFalhou = true; console.warn('Supabase GET fidcs falhou (tabela pode não existir ainda):', e.message); return []; })
     ]);
 
     if (fornecedoresFalhou) {
@@ -1183,6 +1217,18 @@ async function sbLoad() {
         };
       });
     }
+    if (!bancosFalhou) {
+      state.bancos = bancosCad.map(b => ({
+        id: b.id, nome: b.nome, codigo: b.codigo, agencia: b.agencia, conta: b.conta,
+        tipo_conta: b.tipo_conta, titular: b.titular, observacao: b.observacao, _deleted: b._deleted
+      }));
+    }
+    if (!fidcsFalhou) {
+      state.fidcs = fidcsCad.map(f => ({
+        id: f.id, nome: f.nome, cnpj: f.cnpj, contato: f.contato, telefone: f.telefone,
+        email: f.email, taxa_padrao: f.taxa_padrao, observacao: f.observacao, _deleted: f._deleted
+      }));
+    }
 
     migrateClients(state.clients);
     console.log('Supabase: ' + clientes.length + ' clientes, ' + produtos.length + ' produtos, ' + precos.length + ' precos, ' + fornecedores.length + ' fornecedores, ' + contas.length + ' contas carregados');
@@ -1207,9 +1253,11 @@ let state = {
   contasAReceber: [],
   cheques: [],
   operacoesFidc: [],
+  bancos: [],
+  fidcs: [],
   currentTab: 'dashboard',
-  pagination: { clients: 1, products: 1, contas: 1, fornecedores: 1, pedidos: 1, recebiveis: 1, cheques: 1 },
-  search: { clients: '', products: '', contas: '', fornecedores: '', pedidos: '', recebiveis: '', cheques: '' },
+  pagination: { clients: 1, products: 1, contas: 1, fornecedores: 1, pedidos: 1, recebiveis: 1, cheques: 1, bancos: 1, fidcs: 1 },
+  search: { clients: '', products: '', contas: '', fornecedores: '', pedidos: '', recebiveis: '', cheques: '', bancos: '', fidcs: '' },
   selectedClient: null,
   priceLetterFilter: '',
   productFilter: { grupo: '' },
@@ -1230,6 +1278,8 @@ function getActivePedidoItens() { return state.pedidosVenda.filter(function(p) {
 function getActiveRecebiveis() { return state.contasAReceber.filter(function(c) { return !c._deleted; }); }
 function getActiveCheques() { return state.cheques.filter(function(c) { return !c._deleted; }); }
 function getActiveOperacoesFidc() { return (state.operacoesFidc || []).filter(function(o) { return !o._deleted; }); }
+function getActiveBancos() { return (state.bancos || []).filter(function(b) { return !b._deleted; }); }
+function getActiveFidcs() { return (state.fidcs || []).filter(function(f) { return !f._deleted; }); }
 
 // Saldo de crédito (adiantamentos) ainda não utilizado de um cliente.
 function getSaldoAdiantamento(clienteId) {
@@ -1392,6 +1442,8 @@ function _applyState(saved) {
   state.contasAReceber = saved.contasAReceber || [];
   state.cheques = saved.cheques || [];
   state.operacoesFidc = saved.operacoesFidc || [];
+  state.bancos = saved.bancos || [];
+  state.fidcs = saved.fidcs || [];
   migrateClients(state.clients);
 }
 
@@ -1414,7 +1466,7 @@ async function loadState() {
       var statusMudou = recalcAllContasStatus();
       var statusMudouReceb = recalcAllRecebiveisStatus();
       // Atualiza localStorage com os dados atuais (Supabase + eventuais campos preservados do cache)
-      var data = { clients: state.clients, products: state.products, prices: state.prices, assigned: state.assigned, fornecedores: state.fornecedores, contasAPagar: state.contasAPagar, pedidosVenda: state.pedidosVenda, contasAReceber: state.contasAReceber, cheques: state.cheques, operacoesFidc: state.operacoesFidc };
+      var data = { clients: state.clients, products: state.products, prices: state.prices, assigned: state.assigned, fornecedores: state.fornecedores, contasAPagar: state.contasAPagar, pedidosVenda: state.pedidosVenda, contasAReceber: state.contasAReceber, cheques: state.cheques, operacoesFidc: state.operacoesFidc, bancos: state.bancos, fidcs: state.fidcs };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       if (statusMudou || statusMudouReceb) sbSave().catch(function(e) { console.warn('sbSave (recalc status):', e); });
       return;
@@ -1464,7 +1516,9 @@ function saveState() {
       pedidosVenda: state.pedidosVenda,
       contasAReceber: state.contasAReceber,
       cheques: state.cheques,
-      operacoesFidc: state.operacoesFidc
+      operacoesFidc: state.operacoesFidc,
+      bancos: state.bancos,
+      fidcs: state.fidcs
     };
     console.log('Salvando:', Object.keys(state.prices).length + ' precos, ' + state.contasAPagar.length + ' contas, ' + state.pedidosVenda.length + ' itens de pedidos, ' + state.contasAReceber.length + ' recebiveis, ' + state.cheques.length + ' cheques, ' + (state.operacoesFidc||[]).length + ' op. FIDC');
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -2298,7 +2352,7 @@ async function uploadToSheet() {
 // RENDER
 // ============================================================
 function render() {
-  const titles = { dashboard: 'Dashboard', clients: 'Clientes', products: 'Produtos', prices: 'Tabela de Preços', fornecedores: 'Fornecedores', contas: 'Contas a Pagar', pedidos: 'Pedido de Venda', recebiveis: 'Contas a Receber', cheques: 'Controle de Cheques' };
+  const titles = { dashboard: 'Dashboard', clients: 'Clientes', products: 'Produtos', prices: 'Tabela de Preços', fornecedores: 'Fornecedores', contas: 'Contas a Pagar', pedidos: 'Pedido de Venda', recebiveis: 'Contas a Receber', cheques: 'Controle de Cheques', bancosFidc: 'Bancos e FIDC' };
   document.getElementById('pageTitle').textContent = titles[state.currentTab] || 'Dashboard';
   document.getElementById('clientBadge').textContent = getActiveClients().length;
   document.getElementById('productBadge').textContent = getActiveProducts().length;
@@ -2307,6 +2361,7 @@ function render() {
   if (document.getElementById('pedidoBadge')) document.getElementById('pedidoBadge').textContent = getPedidosAgrupados().length;
   if (document.getElementById('recebivelBadge')) document.getElementById('recebivelBadge').textContent = getActiveRecebiveis().filter(function(c){return c.status==='A_VENCER'||c.status==='VENCIDO';}).length;
   if (document.getElementById('chequeBadge')) document.getElementById('chequeBadge').textContent = getActiveCheques().filter(function(c){return c.status==='EM_CARTEIRA'||c.status==='DEPOSITADO';}).length;
+  if (document.getElementById('bancoFidcBadge')) document.getElementById('bancoFidcBadge').textContent = getActiveBancos().length + getActiveFidcs().length;
 
   const actions = document.getElementById('topbarActions');
   const content = document.getElementById('mainContent');
@@ -2320,6 +2375,7 @@ function render() {
   else if (state.currentTab === 'pedidos') renderPedidos(content, actions);
   else if (state.currentTab === 'recebiveis') renderContasReceber(content, actions);
   else if (state.currentTab === 'cheques') renderControleCheques(content, actions);
+  else if (state.currentTab === 'bancosFidc') renderBancosFidc(content, actions);
 }
 
 // ===== DASHBOARD =====
@@ -3942,6 +3998,236 @@ function deleteFornecedor(id) {
     state.fornecedores.forEach(function(f) { if (f.id === id) f._deleted = true; });
     saveState(); updateSyncStatus('success', 'Dados salvos'); render();
     toast('Fornecedor excluído');
+  });
+}
+
+// ============================================================
+// CADASTRO DE BANCOS E FIDC
+// ============================================================
+function renderBancosFidc(container, actions) {
+  actions.innerHTML = `<button class="btn btn-outline" onclick="showFidcForm()" style="margin-right:8px;">&#127974; Nova FIDC</button><button class="btn btn-primary" onclick="showBancoForm()">&#43; Novo Banco</button>`;
+
+  const searchB = state.search.bancos;
+  const pageB = state.pagination.bancos;
+  const perPage = 10;
+  let bancosFiltrados = getActiveBancos().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  if (searchB) {
+    const s = searchB.toLowerCase();
+    bancosFiltrados = bancosFiltrados.filter(b => b.nome?.toLowerCase().includes(s) || b.codigo?.toLowerCase().includes(s) || b.agencia?.toLowerCase().includes(s) || b.conta?.toLowerCase().includes(s));
+  }
+  const totalB = bancosFiltrados.length;
+  const pagesB = Math.ceil(totalB / perPage) || 1;
+  const paginadoB = bancosFiltrados.slice((pageB - 1) * perPage, pageB * perPage);
+
+  const searchF = state.search.fidcs;
+  const pageF = state.pagination.fidcs;
+  let fidcsFiltrados = getActiveFidcs().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  if (searchF) {
+    const s = searchF.toLowerCase();
+    fidcsFiltrados = fidcsFiltrados.filter(f => f.nome?.toLowerCase().includes(s) || f.cnpj?.includes(s) || f.contato?.toLowerCase().includes(s));
+  }
+  const totalF = fidcsFiltrados.length;
+  const pagesF = Math.ceil(totalF / perPage) || 1;
+  const paginadoF = fidcsFiltrados.slice((pageF - 1) * perPage, pageF * perPage);
+
+  container.innerHTML = `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+        <h3 style="font-size:15px;">&#127974; Bancos</h3>
+        <div class="search-box">
+          <span class="icon">&#128270;</span>
+          <input type="text" id="sbanco" placeholder="Buscar banco..." value="${searchB}" oninput="state.search.bancos=this.value;state.pagination.bancos=1;render();setTimeout(function(){var e=document.getElementById('sbanco');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},10)">
+        </div>
+        <span style="font-size:13px;color:var(--gray-500);margin-left:auto;">${totalB} banco${totalB !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        ${totalB === 0 ? `<div class="empty-state"><div class="icon">&#127974;</div><h4>Nenhum banco cadastrado</h4><p>Cadastre a primeira conta bancária da empresa.</p></div>` : `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Código</th><th>Banco</th><th>Agência</th><th>Conta</th><th>Tipo</th><th>Titular</th><th style="text-align:right;">Ações</th></tr>
+            </thead>
+            <tbody>
+              ${paginadoB.map(b => `
+              <tr>
+                <td style="font-family:monospace;font-size:11px;white-space:nowrap;">${escapeHtml(b.codigo || '-')}</td>
+                <td><strong>${escapeHtml(b.nome) || '-'}</strong></td>
+                <td>${escapeHtml(b.agencia || '-')}</td>
+                <td>${escapeHtml(b.conta || '-')}</td>
+                <td>${escapeHtml(b.tipo_conta || '-')}</td>
+                <td>${escapeHtml(b.titular || '-')}</td>
+                <td style="text-align:right;">
+                  <button class="btn-icon edit" data-action="edit-banco" data-id="${b.id}" title="Editar">&#9998;</button>
+                  <button class="btn-icon delete" data-action="delete-banco" data-id="${b.id}" title="Excluir">&#128465;</button>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`}
+      </div>
+      ${pagesB > 1 ? `<div class="card-footer"><div class="pagination"><span>Página ${pageB} de ${pagesB}</span><div class="pages">${Array.from({length: pagesB}, (_, i) => `<button class="${i+1===pageB?'active':''}" onclick="state.pagination.bancos=${i+1};render()">${i+1}</button>`).join('')}</div></div></div>` : ''}
+    </div>
+
+    <div class="card">
+      <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+        <h3 style="font-size:15px;">&#128188; FIDC / Cessionários</h3>
+        <div class="search-box">
+          <span class="icon">&#128270;</span>
+          <input type="text" id="sfidc" placeholder="Buscar FIDC..." value="${searchF}" oninput="state.search.fidcs=this.value;state.pagination.fidcs=1;render();setTimeout(function(){var e=document.getElementById('sfidc');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},10)">
+        </div>
+        <span style="font-size:13px;color:var(--gray-500);margin-left:auto;">${totalF} FIDC${totalF !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        ${totalF === 0 ? `<div class="empty-state"><div class="icon">&#128188;</div><h4>Nenhuma FIDC cadastrada</h4><p>Cadastre as FIDCs/cessionários usados nas operações de desconto de recebíveis.</p></div>` : `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>CNPJ</th><th>Nome</th><th>Contato</th><th>Telefone</th><th>Email</th><th>Taxa Padrão</th><th style="text-align:right;">Ações</th></tr>
+            </thead>
+            <tbody>
+              ${paginadoF.map(f => `
+              <tr>
+                <td style="font-family:monospace;font-size:11px;white-space:nowrap;">${maskCNPJ(f.cnpj || '')}</td>
+                <td><strong>${escapeHtml(f.nome) || '-'}</strong></td>
+                <td>${escapeHtml(f.contato || '-')}</td>
+                <td>${escapeHtml(f.telefone || '-')}</td>
+                <td>${escapeHtml(f.email || '-')}</td>
+                <td>${f.taxa_padrao ? (parseFloat(f.taxa_padrao).toLocaleString('pt-BR')) + '%' : '-'}</td>
+                <td style="text-align:right;">
+                  <button class="btn-icon edit" data-action="edit-fidc" data-id="${f.id}" title="Editar">&#9998;</button>
+                  <button class="btn-icon delete" data-action="delete-fidc" data-id="${f.id}" title="Excluir">&#128465;</button>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`}
+      </div>
+      ${pagesF > 1 ? `<div class="card-footer"><div class="pagination"><span>Página ${pageF} de ${pagesF}</span><div class="pages">${Array.from({length: pagesF}, (_, i) => `<button class="${i+1===pageF?'active':''}" onclick="state.pagination.fidcs=${i+1};render()">${i+1}</button>`).join('')}</div></div></div>` : ''}
+    </div>
+  `;
+}
+
+function showBancoForm(id) {
+  const banco = id ? state.bancos.find(b => b.id === id) : null;
+  const isEdit = !!banco;
+  openModal(`
+    <div class="modal-header">
+      <h3>${isEdit ? 'Editar' : 'Novo'} Banco</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <form onsubmit="saveBanco(event, '${id || ''}')">
+      <div class="modal-body">
+        <div class="form-grid" style="gap:10px;">
+          <div><div class="form-group" style="gap:3px;"><label>Código do Banco</label><input type="text" id="bc_codigo" value="${banco ? (banco.codigo || '') : ''}" placeholder="Ex: 341" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Nome do Banco *</label><input type="text" id="bc_nome" value="${escapeHtml(banco ? (banco.nome || '') : '')}" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Agência</label><input type="text" id="bc_agencia" value="${escapeHtml(banco ? (banco.agencia || '') : '')}" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Conta</label><input type="text" id="bc_conta" value="${escapeHtml(banco ? (banco.conta || '') : '')}" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Tipo de Conta</label><select id="bc_tipo" style="width:100%;">
+            <option value="CORRENTE" ${banco && banco.tipo_conta === 'CORRENTE' ? 'selected' : ''}>Corrente</option>
+            <option value="POUPANCA" ${banco && banco.tipo_conta === 'POUPANCA' ? 'selected' : ''}>Poupança</option>
+          </select></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Titular</label><input type="text" id="bc_titular" value="${escapeHtml(banco ? (banco.titular || '') : '')}" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="bc_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">${escapeHtml(banco ? (banco.observacao || '') : '')}</textarea></div></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar' : 'Cadastrar'}</button>
+      </div>
+    </form>
+  `);
+}
+
+function saveBanco(e, id) {
+  e.preventDefault();
+  const data = {
+    codigo: document.getElementById('bc_codigo').value.trim(),
+    nome: document.getElementById('bc_nome').value.trim(),
+    agencia: document.getElementById('bc_agencia').value.trim(),
+    conta: document.getElementById('bc_conta').value.trim(),
+    tipo_conta: document.getElementById('bc_tipo').value,
+    titular: document.getElementById('bc_titular').value.trim(),
+    observacao: document.getElementById('bc_obs').value.trim(),
+  };
+  if (!data.nome) { toast('Informe o nome do banco', 'error'); return; }
+
+  if (id) {
+    const idx = state.bancos.findIndex(b => b.id === id);
+    if (idx >= 0) { state.bancos[idx] = { ...state.bancos[idx], ...data }; }
+    toast('Banco atualizado!');
+  } else {
+    state.bancos.push({ id: uid(), ...data, _deleted: false });
+    toast('Banco cadastrado!');
+  }
+  saveState(); updateSyncStatus('success', 'Dados salvos'); closeModal(); render();
+}
+
+function deleteBanco(id) {
+  showConfirmModal('Tem certeza que deseja excluir este banco?', function() {
+    state.bancos.forEach(function(b) { if (b.id === id) b._deleted = true; });
+    saveState(); updateSyncStatus('success', 'Dados salvos'); render();
+    toast('Banco excluído');
+  });
+}
+
+function showFidcForm(id) {
+  const fidc = id ? state.fidcs.find(f => f.id === id) : null;
+  const isEdit = !!fidc;
+  openModal(`
+    <div class="modal-header">
+      <h3>${isEdit ? 'Editar' : 'Nova'} FIDC / Cessionário</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <form onsubmit="saveFidc(event, '${id || ''}')">
+      <div class="modal-body">
+        <div class="form-grid" style="gap:10px;">
+          <div class="full"><div class="form-group" style="gap:3px;"><label>CNPJ</label><input type="text" id="fc_cnpj" value="${fidc ? (fidc.cnpj || '') : ''}" oninput="this.value=maskCNPJ(this.value).toUpperCase()" style="width:100%;text-transform:uppercase;"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Nome / Razão Social *</label><input type="text" id="fc_nome" value="${escapeHtml(fidc ? (fidc.nome || '') : '')}" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Contato</label><input type="text" id="fc_contato" value="${escapeHtml(fidc ? (fidc.contato || '') : '')}" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Telefone</label><input type="text" id="fc_telefone" value="${fidc ? (fidc.telefone || '') : ''}" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Email</label><input type="email" id="fc_email" value="${fidc ? (fidc.email || '') : ''}" style="width:100%;"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Taxa de Desconto Padrão (%)</label><input type="text" inputmode="decimal" id="fc_taxa" value="${fidc && fidc.taxa_padrao ? String(fidc.taxa_padrao).replace('.', ',') : ''}" placeholder="Ex: 2,5" style="width:100%;"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="fc_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">${escapeHtml(fidc ? (fidc.observacao || '') : '')}</textarea></div></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar' : 'Cadastrar'}</button>
+      </div>
+    </form>
+  `);
+}
+
+function saveFidc(e, id) {
+  e.preventDefault();
+  const cnpj = cleanCPF_CNPJ(document.getElementById('fc_cnpj').value);
+  const data = {
+    cnpj,
+    nome: document.getElementById('fc_nome').value.trim(),
+    contato: document.getElementById('fc_contato').value.trim(),
+    telefone: document.getElementById('fc_telefone').value.trim(),
+    email: document.getElementById('fc_email').value.trim(),
+    taxa_padrao: parseFloat((document.getElementById('fc_taxa').value || '0').replace(',', '.')) || 0,
+    observacao: document.getElementById('fc_obs').value.trim(),
+  };
+  if (!data.nome) { toast('Informe o nome da FIDC', 'error'); return; }
+
+  if (id) {
+    const idx = state.fidcs.findIndex(f => f.id === id);
+    if (idx >= 0) { state.fidcs[idx] = { ...state.fidcs[idx], ...data }; }
+    toast('FIDC atualizada!');
+  } else {
+    state.fidcs.push({ id: uid(), ...data, _deleted: false });
+    toast('FIDC cadastrada!');
+  }
+  saveState(); updateSyncStatus('success', 'Dados salvos'); closeModal(); render();
+}
+
+function deleteFidc(id) {
+  showConfirmModal('Tem certeza que deseja excluir esta FIDC?', function() {
+    state.fidcs.forEach(function(f) { if (f.id === id) f._deleted = true; });
+    saveState(); updateSyncStatus('success', 'Dados salvos'); render();
+    toast('FIDC excluída');
   });
 }
 
@@ -5841,6 +6127,15 @@ function deleteConta(id) {
 // ============================================================
 // CONTAS A RECEBER
 // ============================================================
+// Extrai o número da parcela (ex: "1/5") que hoje vem embutido no texto do
+// título (ex: "PEDIDO 2523 - PARCELA 1/5"), separando-o para exibição em
+// coluna própria no grid, sem precisar alterar o dado já salvo.
+function extractParcelaInfo(titulo) {
+  const t = titulo || '';
+  const m = /^(.*?)\s*-\s*PARCELA\s*(\d+)\s*\/\s*(\d+)\s*$/i.exec(t);
+  if (m) return { tituloBase: m[1].trim(), parcela: m[2] + '/' + m[3] };
+  return { tituloBase: t, parcela: '' };
+}
 const statusColorsReceb = { 'RECEBIDO': 'badge-success', 'RECEBIDO_PARCIALMENTE': 'badge-info', 'A_VENCER': 'badge-info', 'VENCIDO': 'badge-danger', 'CANCELADO': 'badge-secondary', 'DESCONTADO_FIDC': 'badge-warning', 'LIQUIDADO_FIDC': 'badge-success' };
 const statusLabelsReceb = { 'RECEBIDO': 'Recebido', 'RECEBIDO_PARCIALMENTE': 'Parcialmente', 'A_VENCER': 'A Vencer', 'VENCIDO': 'Vencido', 'CANCELADO': 'Cancelado', 'DESCONTADO_FIDC': 'Descontado FIDC', 'LIQUIDADO_FIDC': 'Liquidado (FIDC)' };
 const formaLabels = { 'DINHEIRO': 'Dinheiro', 'PIX': 'Pix', 'BOLETO': 'Boleto', 'CARTAO': 'Cartão', 'CHEQUE': 'Cheque', 'TRANSFERENCIA': 'Transferência', 'ADIANTAMENTO': 'Adiantamento' };
@@ -5931,8 +6226,9 @@ function renderContasReceber(container, actions) {
           <thead>
             <tr>
               <th style="width:36px;text-align:center;font-size:9px;" title="Selecionar para desconto FIDC">FIDC</th>
-              <th class="col-titulo">Título</th>
-              <th class="col-forn">Cliente</th>
+              <th class="col-titulo" style="width:10%;">Título</th>
+              <th style="width:7%;text-align:center;">Parcela</th>
+              <th class="col-forn" style="width:19%;">Cliente</th>
               <th class="col-date">Vencimento</th>
               <th class="col-date">Recebimento</th>
               <th class="col-num">Valor</th>
@@ -5942,7 +6238,7 @@ function renderContasReceber(container, actions) {
             </tr>
           </thead>
           <tbody>
-            ${filtered.length === 0 ? '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--gray-400);">Nenhum título registrado.</td></tr>' : ''}
+            ${filtered.length === 0 ? '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--gray-400);">Nenhum título registrado.</td></tr>' : ''}
             ${filtered.map(function(c) {
               const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
               const clienteNome = cliente ? cliente.nome : '(cliente não encontrado)';
@@ -5956,9 +6252,11 @@ function renderContasReceber(container, actions) {
               const isFidcLiquidado = c.status === 'LIQUIDADO_FIDC';
               const elegivelFidc = c.tipo !== 'ADIANTAMENTO' && (isAVencer || isVencido);
               const cheque = c.forma_recebimento === 'CHEQUE' ? getActiveCheques().find(function(ch) { return ch.conta_receber_id === c.id; }) : null;
+              const parcelaInfo = extractParcelaInfo(c.titulo);
               return `<tr>
                 <td style="text-align:center;">${elegivelFidc ? '<input type="checkbox" ' + (_fidcSelecionados.has(c.id) ? 'checked' : '') + ' onchange="toggleFidcSelecionado(\'' + c.id + '\')">' : ''}</td>
-                <td class="col-titulo" style="font-weight:600;" title="${escapeHtml(c.titulo||'')}">${escapeHtml(c.titulo||'')}${c.tipo==='ADIANTAMENTO' ? ' <span class="badge badge-info" style="font-size:9px;">ADIANT.</span>' : ''}${(isFidc||isFidcLiquidado) ? ' <span class="badge badge-warning" style="font-size:9px;">FIDC</span>' : ''}</td>
+                <td class="col-titulo" style="font-weight:600;" title="${escapeHtml(c.titulo||'')}">${escapeHtml(parcelaInfo.tituloBase)}${c.tipo==='ADIANTAMENTO' ? ' <span class="badge badge-info" style="font-size:9px;">ADIANT.</span>' : ''}${(isFidc||isFidcLiquidado) ? ' <span class="badge badge-warning" style="font-size:9px;">FIDC</span>' : ''}</td>
+                <td style="text-align:center;font-size:12px;color:var(--gray-600);">${parcelaInfo.parcela || '-'}</td>
                 <td class="col-forn" title="${escapeHtml(clienteNome)}">${escapeHtml(clienteNome)}</td>
                 <td class="col-date">${formatDateBR(c.data_vencimento)}</td>
                 <td class="col-date">${formatDateBR(c.data_recebimento)}</td>
@@ -6041,11 +6339,53 @@ function changeRecebivelStatus(id, newStatus) {
 
 function deleteRecebivel(id) {
   document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  const conta = state.contasAReceber.find(function(c) { return c.id === id; });
+  const estaEmFidc = conta && (conta.status === 'DESCONTADO_FIDC' || conta.status === 'LIQUIDADO_FIDC' || conta.fidc_operacao_id);
+  if (estaEmFidc) {
+    showExcluirTituloFidcModal(id, conta);
+    return;
+  }
   showConfirmModal('Tem certeza que deseja excluir este título de Contas a Receber?', function() {
     state.contasAReceber.forEach(function(c) { if (c.id === id) c._deleted = true; });
     saveState(); render();
     toast('Título excluído');
   });
+}
+
+// Quando o título já foi enviado para desconto/cessão junto a uma FIDC,
+// avisa o usuário disso antes de excluir e oferece a escolha explícita
+// entre excluir mesmo assim (mantendo a operação FIDC intacta para
+// consulta histórica) ou preservar o título no controle normal da FIDC.
+function showExcluirTituloFidcModal(id, conta) {
+  const op = (state.operacoesFidc || []).find(function(o) { return o.id === conta.fidc_operacao_id; });
+  const overlay = document.getElementById('modalOverlay');
+  const content = document.getElementById('modalContent');
+  content.className = 'modal';
+  content.innerHTML =
+    '<div class="modal-header">' +
+      '<h3>&#9888; Título Descontado em FIDC</h3>' +
+      '<button class="modal-close" onclick="closeModal()">&times;</button>' +
+    '</div>' +
+    '<div class="modal-body">' +
+      '<p style="font-size:14px;color:var(--gray-700);margin-bottom:10px;">O título <strong>"' + escapeHtml(conta.titulo || '') + '"</strong> está descontado/cedido junto à FIDC <strong>' + (op ? escapeHtml(op.fidc_nome) : '-') + '</strong> e faz parte do controle dessa operação.</p>' +
+      '<p style="font-size:13px;color:var(--gray-500);">Você pode excluí-lo de Contas a Receber mesmo assim (a operação FIDC é mantida para consulta histórica) ou manter o título no controle normal da FIDC, sem excluir.</p>' +
+    '</div>' +
+    '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>' +
+      '<button type="button" class="btn btn-outline" id="btnManterFidc">Permanecer no Controle FIDC</button>' +
+      '<button type="button" class="btn btn-danger" id="btnExcluirFidc">Excluir Mesmo Assim</button>' +
+    '</div>';
+  overlay.classList.add('open');
+  document.getElementById('btnManterFidc').onclick = function() {
+    closeModal();
+    toast('Título mantido no controle da FIDC.');
+  };
+  document.getElementById('btnExcluirFidc').onclick = function() {
+    closeModal();
+    state.contasAReceber.forEach(function(c) { if (c.id === id) c._deleted = true; });
+    saveState(); render();
+    toast('Título excluído. A operação FIDC foi mantida para controle histórico.');
+  };
 }
 
 // ============================================================
@@ -6070,13 +6410,15 @@ function showEnviarFidcForm() {
       <div class="modal-body">
         <div style="background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;max-height:160px;overflow-y:auto;">${listaHtml}</div>
         <div class="form-grid" style="gap:10px;">
-          <div class="full"><div class="form-group" style="gap:3px;"><label>FIDC / Cessionário *</label><input type="text" id="fd_nome" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>FIDC / Cessionário *</label><input type="text" id="fd_nome" list="dl_fidcs" required style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div>
+          <datalist id="dl_fidcs">${getActiveFidcs().map(function(f) { return '<option value="' + escapeHtml(f.nome) + '">'; }).join('')}</datalist></div>
           <div><div class="form-group" style="gap:3px;"><label>Data da Operação *</label><input type="date" id="fd_data" value="${new Date().toISOString().slice(0,10)}" required style="width:100%;"></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Valor de Face</label><input type="text" value="${formatBRL(valorFace)}" disabled style="width:100%;background:var(--gray-100);"></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Taxa de Desconto (%) *</label><input type="text" inputmode="decimal" id="fd_taxa" required style="width:100%;" placeholder="Ex: 2,5" oninput="atualizaCalculoFidc(${valorFace})"></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Valor do Desconto</label><input type="text" id="fd_valor_desconto" value="R$ 0,00" disabled style="width:100%;background:var(--gray-100);"></div></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Valor Líquido a Receber</label><input type="text" id="fd_valor_liquido" value="${formatBRL(valorFace)}" disabled style="width:100%;background:var(--gray-100);font-weight:700;"></div></div>
-          <div class="full"><div class="form-group" style="gap:3px;"><label>Conta/Banco de Recebimento do Líquido</label><input type="text" id="fd_conta_receb" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div class="full"><div class="form-group" style="gap:3px;"><label>Conta/Banco de Recebimento do Líquido</label><input type="text" id="fd_conta_receb" list="dl_bancos" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div>
+          <datalist id="dl_bancos">${getActiveBancos().map(function(b) { return '<option value="' + escapeHtml(b.nome) + (b.agencia ? ' - AG ' + escapeHtml(b.agencia) : '') + (b.conta ? ' - CC ' + escapeHtml(b.conta) : '') + '">'; }).join('')}</datalist></div>
           <div class="full"><div class="form-group" style="gap:3px;"><label>Observação</label><textarea id="fd_obs" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></textarea></div></div>
         </div>
       </div>
@@ -6262,7 +6604,8 @@ function showOperacoesFidcModal(highlightOpId) {
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">${titulosDaOp.length} título(s):</div>
           ${titulosDaOp.map(function(c) {
             const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
-            return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--gray-100);"><span>' + escapeHtml(c.titulo||'') + ' &mdash; ' + escapeHtml(cliente?cliente.nome:'') + '</span><span class="badge ' + (statusColorsReceb[c.status]||'badge-info') + '" style="font-size:9px;">' + (statusLabelsReceb[c.status]||c.status) + '</span></div>';
+            const pInfo = extractParcelaInfo(c.titulo);
+            return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--gray-100);"><span>' + escapeHtml(pInfo.tituloBase) + (pInfo.parcela ? ' <span style="color:var(--gray-400);">(' + pInfo.parcela + ')</span>' : '') + ' &mdash; ' + escapeHtml(cliente?cliente.nome:'') + '</span><span class="badge ' + (statusColorsReceb[c.status]||'badge-info') + '" style="font-size:9px;">' + (statusLabelsReceb[c.status]||c.status) + '</span></div>';
           }).join('')}
           ${op.observacao ? '<div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Obs: ' + escapeHtml(op.observacao) + '</div>' : ''}
         </div>`;
@@ -7463,6 +7806,10 @@ document.addEventListener('click', function(e) {
   else if (action === 'delete-fornecedor') deleteFornecedor(id);
   else if (action === 'edit-fornecedor') showFornecedorForm(id);
   else if (action === 'delete-conta') deleteConta(id);
+  else if (action === 'delete-banco') deleteBanco(id);
+  else if (action === 'edit-banco') showBancoForm(id);
+  else if (action === 'delete-fidc') deleteFidc(id);
+  else if (action === 'edit-fidc') showFidcForm(id);
 });
 
 </script>
