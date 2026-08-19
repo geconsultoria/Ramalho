@@ -278,6 +278,11 @@ tbody tr:hover td { background: var(--gray-50); }
 tbody tr:last-child td { border-bottom: none; }
 .price-cell { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
 
+/* Grids compactos (linhas mais estreitas) — usado em Bancos e FIDC */
+.table-compact thead th { padding: 6px 12px; font-size: 11px; }
+.table-compact tbody td { padding: 5px 12px; font-size: 12px; }
+.table-compact .btn-icon { width: 26px; height: 26px; font-size: 13px; }
+
 /* Coluna "Produto" fixa ao rolar a tabela para o lado (Produtos e Tabela de Preços) */
 .table-sticky-col th:first-child,
 .table-sticky-col td:first-child {
@@ -4010,7 +4015,7 @@ function renderBancosFidc(container, actions) {
 
   const searchB = state.search.bancos;
   const pageB = state.pagination.bancos;
-  const perPage = 10;
+  const perPage = 20;
   let bancosFiltrados = getActiveBancos().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
   if (searchB) {
     const s = searchB.toLowerCase();
@@ -4033,18 +4038,18 @@ function renderBancosFidc(container, actions) {
 
   container.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
-      <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-        <h3 style="font-size:15px;">&#127974; Bancos</h3>
+      <div class="card-header" style="flex-wrap:wrap;gap:10px;padding:10px 16px;">
+        <h3 style="font-size:14px;">&#127974; Bancos</h3>
         <div class="search-box">
           <span class="icon">&#128270;</span>
           <input type="text" id="sbanco" placeholder="Buscar banco..." value="${searchB}" oninput="state.search.bancos=this.value;state.pagination.bancos=1;render();setTimeout(function(){var e=document.getElementById('sbanco');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},10)">
         </div>
-        <span style="font-size:13px;color:var(--gray-500);margin-left:auto;">${totalB} banco${totalB !== 1 ? 's' : ''}</span>
+        <span style="font-size:12px;color:var(--gray-500);margin-left:auto;">${totalB} banco${totalB !== 1 ? 's' : ''}</span>
       </div>
       <div class="card-body" style="padding:0;">
         ${totalB === 0 ? `<div class="empty-state"><div class="icon">&#127974;</div><h4>Nenhum banco cadastrado</h4><p>Cadastre a primeira conta bancária da empresa.</p></div>` : `
         <div class="table-wrap">
-          <table>
+          <table class="table-compact">
             <thead>
               <tr><th>Código</th><th>Banco</th><th>Agência</th><th>Conta</th><th>Tipo</th><th>Titular</th><th style="text-align:right;">Ações</th></tr>
             </thead>
@@ -4057,7 +4062,7 @@ function renderBancosFidc(container, actions) {
                 <td>${escapeHtml(b.conta || '-')}</td>
                 <td>${escapeHtml(b.tipo_conta || '-')}</td>
                 <td>${escapeHtml(b.titular || '-')}</td>
-                <td style="text-align:right;">
+                <td style="text-align:right;white-space:nowrap;">
                   <button class="btn-icon edit" data-action="edit-banco" data-id="${b.id}" title="Editar">&#9998;</button>
                   <button class="btn-icon delete" data-action="delete-banco" data-id="${b.id}" title="Excluir">&#128465;</button>
                 </td>
@@ -4066,22 +4071,22 @@ function renderBancosFidc(container, actions) {
           </table>
         </div>`}
       </div>
-      ${pagesB > 1 ? `<div class="card-footer"><div class="pagination"><span>Página ${pageB} de ${pagesB}</span><div class="pages">${Array.from({length: pagesB}, (_, i) => `<button class="${i+1===pageB?'active':''}" onclick="state.pagination.bancos=${i+1};render()">${i+1}</button>`).join('')}</div></div></div>` : ''}
+      ${pagesB > 1 ? `<div class="card-footer" style="padding:8px 16px;"><div class="pagination"><span>Página ${pageB} de ${pagesB}</span><div class="pages">${Array.from({length: pagesB}, (_, i) => `<button class="${i+1===pageB?'active':''}" onclick="state.pagination.bancos=${i+1};render()">${i+1}</button>`).join('')}</div></div></div>` : ''}
     </div>
 
     <div class="card">
-      <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-        <h3 style="font-size:15px;">&#128188; FIDC / Cessionários</h3>
+      <div class="card-header" style="flex-wrap:wrap;gap:10px;padding:10px 16px;">
+        <h3 style="font-size:14px;">&#128188; FIDC / Cessionários</h3>
         <div class="search-box">
           <span class="icon">&#128270;</span>
           <input type="text" id="sfidc" placeholder="Buscar FIDC..." value="${searchF}" oninput="state.search.fidcs=this.value;state.pagination.fidcs=1;render();setTimeout(function(){var e=document.getElementById('sfidc');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},10)">
         </div>
-        <span style="font-size:13px;color:var(--gray-500);margin-left:auto;">${totalF} FIDC${totalF !== 1 ? 's' : ''}</span>
+        <span style="font-size:12px;color:var(--gray-500);margin-left:auto;">${totalF} FIDC${totalF !== 1 ? 's' : ''}</span>
       </div>
       <div class="card-body" style="padding:0;">
         ${totalF === 0 ? `<div class="empty-state"><div class="icon">&#128188;</div><h4>Nenhuma FIDC cadastrada</h4><p>Cadastre as FIDCs/cessionários usados nas operações de desconto de recebíveis.</p></div>` : `
         <div class="table-wrap">
-          <table>
+          <table class="table-compact">
             <thead>
               <tr><th>CNPJ</th><th>Nome</th><th>Contato</th><th>Telefone</th><th>Email</th><th>Taxa Padrão</th><th style="text-align:right;">Ações</th></tr>
             </thead>
@@ -4094,7 +4099,7 @@ function renderBancosFidc(container, actions) {
                 <td>${escapeHtml(f.telefone || '-')}</td>
                 <td>${escapeHtml(f.email || '-')}</td>
                 <td>${f.taxa_padrao ? (parseFloat(f.taxa_padrao).toLocaleString('pt-BR')) + '%' : '-'}</td>
-                <td style="text-align:right;">
+                <td style="text-align:right;white-space:nowrap;">
                   <button class="btn-icon edit" data-action="edit-fidc" data-id="${f.id}" title="Editar">&#9998;</button>
                   <button class="btn-icon delete" data-action="delete-fidc" data-id="${f.id}" title="Excluir">&#128465;</button>
                 </td>
@@ -5043,7 +5048,7 @@ function renderPedidos(container, actions) {
               <div style="font-size:13px;color:var(--gray-500);font-weight:500;">Total de Pedidos</div>
             </div>
           </div>
-          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-40%);">
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;">
             <div class="value" style="font-size:28px;">${totalPedidos}</div>
           </div>
         </div>
@@ -5054,8 +5059,8 @@ function renderPedidos(container, actions) {
               <div style="font-size:13px;color:var(--gray-500);font-weight:500;">Valor Total em Pedidos</div>
             </div>
           </div>
-          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-40%);">
-            <div class="value" style="font-size:28px;color:var(--success);">${formatMoney(totalGeral)}</div>
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-40%);width:90%;text-align:center;">
+            <div class="value" style="font-size:24px;color:var(--success);white-space:nowrap;">${formatMoney(totalGeral)}</div>
           </div>
         </div>
       </div>
