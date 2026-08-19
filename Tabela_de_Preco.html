@@ -6274,10 +6274,10 @@ function renderContasReceber(container, actions) {
               const cheque = c.forma_recebimento === 'CHEQUE' ? getActiveCheques().find(function(ch) { return ch.conta_receber_id === c.id; }) : null;
               const parcelaInfo = extractParcelaInfo(c.titulo);
               const opFidcLinha = c.fidc_operacao_id ? (state.operacoesFidc || []).find(function(o) { return o.id === c.fidc_operacao_id; }) : null;
-              const fidcBadgeLabel = opFidcLinha ? opFidcLinha.fidc_nome : 'FIDC';
+              const fidcBadgeLabel = opFidcLinha ? ('FIDC ' + opFidcLinha.fidc_nome) : 'FIDC';
               return `<tr>
                 <td style="text-align:center;">${elegivelFidc ? '<input type="checkbox" ' + (_fidcSelecionados.has(c.id) ? 'checked' : '') + ' onchange="toggleFidcSelecionado(\'' + c.id + '\')">' : ''}</td>
-                <td class="col-titulo" style="font-weight:600;" title="${escapeHtml(c.titulo||'')}">${escapeHtml(parcelaInfo.tituloBase)}${c.tipo==='ADIANTAMENTO' ? ' <span class="badge badge-info" style="font-size:9px;">ADIANT.</span>' : ''}${(isFidc||isFidcLiquidado) ? ' <span class="badge badge-warning" style="font-size:9px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;display:inline-block;" title="' + escapeHtml(fidcBadgeLabel) + '">' + escapeHtml(fidcBadgeLabel) + '</span>' : ''}</td>
+                <td class="col-titulo" style="font-weight:600;" title="${escapeHtml(c.titulo||'')}">${escapeHtml(parcelaInfo.tituloBase)}${c.tipo==='ADIANTAMENTO' ? ' <span class="badge badge-info" style="font-size:9px;">ADIANT.</span>' : ''}${(isFidc||isFidcLiquidado) ? ' <span class="badge badge-warning" style="font-size:9px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;display:inline-block;" title="' + escapeHtml(fidcBadgeLabel) + '">' + escapeHtml(fidcBadgeLabel) + '</span>' : ''}</td>
                 <td style="text-align:center;font-size:12px;color:var(--gray-600);">${parcelaInfo.parcela || '-'}</td>
                 <td class="col-forn" title="${escapeHtml(clienteNome)}">${escapeHtml(clienteNome)}</td>
                 <td class="col-date">${formatDateBR(c.data_vencimento)}</td>
