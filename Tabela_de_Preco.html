@@ -69,6 +69,7 @@
   --side-w: 240px;
   --side-w-collapsed: 64px;
   --gold: #c8961a;
+  --sidebar-width: 64px;
 }
 body { font-family: 'Inter', sans-serif; background: var(--gray-50); color: var(--gray-900); min-height: 100vh; }
 
@@ -299,9 +300,15 @@ tbody tr:last-child td { border-bottom: none; }
 /* ===== MODAL ===== */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(15,23,42,0.5); backdrop-filter: blur(4px);
-  z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px;
+  z-index: 400; display: none; align-items: center; justify-content: center; padding: 20px;
   animation: fadeIn 0.2s ease;
 }
+.modal-overlay.fullscreen-mode {
+  padding: 0; align-items: stretch; justify-content: stretch;
+  left: var(--sidebar-width); background: transparent; backdrop-filter: none;
+  pointer-events: none;
+}
+.modal-overlay.fullscreen-mode .modal { pointer-events: auto; }
 .modal-overlay.open { display: flex; }
 .modal {
   background: white; border-radius: var(--radius); width: 100%; max-width: 560px;
@@ -311,10 +318,12 @@ tbody tr:last-child td { border-bottom: none; }
 .modal.wide { max-width: 720px; }
 .modal.xwide { max-width: 980px; }
 .modal.fullscreen {
-  width: 96vw; max-width: 1400px; height: 94vh; max-height: 94vh;
+  width: 100%; height: 100%;
+  max-width: none; max-height: none;
+  border-radius: 0;
   display: flex; flex-direction: column;
 }
-.modal.fullscreen .modal-body { flex: 1 1 auto; min-height: 0; }
+.modal.fullscreen .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px 24px; border-bottom: 1px solid var(--gray-200);
@@ -442,6 +451,7 @@ tbody tr:last-child td { border-bottom: none; }
   .form-grid { grid-template-columns: 1fr; }
   .modal { max-width: 100%; margin: 10px; }
   .modal.fullscreen { width: 100vw; max-width: 100vw; height: 100vh; max-height: 100vh; margin: 0; border-radius: 0; }
+  .modal-overlay.fullscreen-mode { left: 0; --sidebar-width: 0px; }
   .pedido-grid { grid-template-columns: 1fr !important; }
   .client-grid { grid-template-columns: 1fr; }
 
@@ -1297,8 +1307,8 @@ function getPedidosAgrupados() {
       ipi_valor: ipiValor,
       frete: frete,
       regime_tributario: first.regime_tributario || '',
-      // valor_pedido = total final do pedido (produtos - desconto + ICMS + IPI + frete)
-      valor_pedido: valorProdutos - desconto + icmsValor + ipiValor + frete
+      // valor_pedido = total final do pedido (produtos - desconto + IPI + frete). ICMS não entra no total.
+      valor_pedido: valorProdutos - desconto + ipiValor + frete
     };
   });
 }
@@ -1484,14 +1494,18 @@ function toast(message, type = 'success') {
 function openModal(html, wide = false, lockOverlay = false) {
   const overlay = document.getElementById('modalOverlay');
   const content = document.getElementById('modalContent');
-  const sizeClass = wide === 'xwide' ? ' xwide' : (wide === 'fullscreen' ? ' fullscreen' : (wide ? ' wide' : ''));
+  const isFullscreen = wide === 'fullscreen';
+  const sizeClass = isFullscreen ? ' fullscreen' : (wide === 'xwide' ? ' xwide' : (wide ? ' wide' : ''));
   content.className = `modal${sizeClass}`;
+  if (isFullscreen) overlay.classList.add('fullscreen-mode');
+  else overlay.classList.remove('fullscreen-mode');
   content.innerHTML = html;
   overlay.onclick = lockOverlay ? null : function(e){ if(e.target===this) closeModal(); };
   overlay.classList.add('open');
 }
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
+  document.getElementById('modalOverlay').classList.remove('fullscreen-mode');
 }
 function confirmDialog(title, message, onConfirm) {
   var msg = title + '\n\n' + message.replace(/<[^>]+>/g, '');
@@ -1562,6 +1576,7 @@ function switchTab(tab) {
         const item = document.querySelector(`.side-item[data-menu="${menuToShow}"]`);
         if (item) item.classList.add('open');
       }
+      document.documentElement.style.setProperty('--sidebar-width', '240px');
     }
   });
   sidebar.addEventListener('mouseleave', () => {
@@ -1569,6 +1584,7 @@ function switchTab(tab) {
       const openItem = document.querySelector('.side-item.open');
       lastOpenMenu = openItem ? openItem.getAttribute('data-menu') : lastOpenMenu;
       document.querySelectorAll('.side-item.open').forEach(i => i.classList.remove('open'));
+      document.documentElement.style.setProperty('--sidebar-width', '64px');
     }
     sidebar.classList.remove('peek');
   });
@@ -1582,6 +1598,7 @@ function switchTab(tab) {
   window.expandSidebar = function() {
     if (!sidebar.classList.contains('collapsed')) return;
     sidebar.classList.remove('collapsed');
+    document.documentElement.style.setProperty('--sidebar-width', '240px');
     const menuToShow = lastOpenMenu || getActiveMenu();
     if (menuToShow) {
       const item = document.querySelector(`.side-item[data-menu="${menuToShow}"]`);
@@ -1590,6 +1607,7 @@ function switchTab(tab) {
   };
   window.collapseSidebar = function() {
     sidebar.classList.add('collapsed');
+    document.documentElement.style.setProperty('--sidebar-width', '64px');
     const openItem = document.querySelector('.side-item.open');
     lastOpenMenu = openItem ? openItem.getAttribute('data-menu') : lastOpenMenu;
     document.querySelectorAll('.side-item.open').forEach(i => i.classList.remove('open'));
@@ -4867,15 +4885,15 @@ function openPedidoModal(pedidoId) {
             <label style="font-size:13px;font-weight:700;color:var(--gray-700);">Produtos do Pedido</label>
             <button type="button" id="pedAddProdutoBtn" class="btn btn-sm btn-primary" onclick="addPedidoItemRow()" style="padding:6px 14px;">&#43; Adicionar Produto</button>
           </div>
-          <div id="pedidoItensWrap" style="border:1px solid var(--gray-200);border-radius:var(--radius);overflow-y:auto;flex:1;min-height:160px;">
-            <table style="width:100%;border-collapse:collapse;">
+          <div id="pedidoItensWrap" style="border:1px solid var(--gray-200);border-radius:var(--radius);overflow-y:auto;height:200px;min-height:200px;flex-shrink:0;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead>
-                <tr style="background:var(--gray-50);position:sticky;top:0;z-index:1;">
-                  <th style="text-align:left;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;">Produto</th>
-                  <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:90px;">Qtd</th>
-                  <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:130px;">Vl. Unit&aacute;rio</th>
-                  <th style="text-align:right;padding:10px 12px;font-size:11px;color:var(--gray-500);text-transform:uppercase;width:130px;">Vl. Total</th>
-                  <th style="width:44px;"></th>
+                <tr style="background:var(--gray-100);position:sticky;top:0;z-index:1;">
+                  <th style="text-align:left;padding:8px 10px;font-size:10.5px;color:var(--gray-500);text-transform:uppercase;border-bottom:2px solid var(--gray-300);border-right:1px solid var(--gray-200);">Produto</th>
+                  <th style="text-align:right;padding:8px 10px;font-size:10.5px;color:var(--gray-500);text-transform:uppercase;width:80px;border-bottom:2px solid var(--gray-300);border-right:1px solid var(--gray-200);">Qtd</th>
+                  <th style="text-align:right;padding:8px 10px;font-size:10.5px;color:var(--gray-500);text-transform:uppercase;width:120px;border-bottom:2px solid var(--gray-300);border-right:1px solid var(--gray-200);">Vl. Unit&aacute;rio</th>
+                  <th style="text-align:right;padding:8px 10px;font-size:10.5px;color:var(--gray-500);text-transform:uppercase;width:120px;border-bottom:2px solid var(--gray-300);border-right:1px solid var(--gray-200);">Vl. Total</th>
+                  <th style="width:36px;border-bottom:2px solid var(--gray-300);"></th>
                 </tr>
               </thead>
               <tbody id="pedidoItensBody"></tbody>
@@ -4884,6 +4902,41 @@ function openPedidoModal(pedidoId) {
               Nenhum produto adicionado. Clique em <strong>&#43; Adicionar Produto</strong> para come&ccedil;ar.
             </div>
           </div>
+
+          ${!isEdit ? `
+          <div style="padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);margin-top:14px;">
+            <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128179; Condi&ccedil;&atilde;o de Pagamento</label>
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;align-items:end;">
+              <div class="form-group" style="gap:3px;">
+                <label style="font-size:10px;font-weight:600;color:var(--gray-500);">Forma de Recebimento</label>
+                <select id="pd_forma_receb" style="width:100%;padding:5px 8px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;font-family:inherit;background:white;">
+                  <option value="DINHEIRO">Dinheiro</option>
+                  <option value="PIX" selected>Pix</option>
+                  <option value="BOLETO">Boleto</option>
+                  <option value="CARTAO">Cartão</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="TRANSFERENCIA">Transferência/TED</option>
+                </select>
+              </div>
+              <div class="form-group" style="gap:3px;">
+                <label style="font-size:10px;font-weight:600;color:var(--gray-500);">Nº de Parcelas</label>
+                <input type="number" min="1" max="36" id="pd_parcelas" value="1" style="width:100%;padding:5px 8px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;font-family:inherit;" oninput="updateParcelasPreview()">
+              </div>
+              <div class="form-group" style="gap:3px;">
+                <label style="font-size:10px;font-weight:600;color:var(--gray-500);">Intervalo (dias)</label>
+                <input type="number" min="1" id="pd_intervalo_parcelas" value="30" style="width:100%;padding:5px 8px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;font-family:inherit;" oninput="updateParcelasPreview()">
+              </div>
+              <div class="form-group" style="gap:3px;">
+                <label style="font-size:10px;font-weight:600;color:var(--gray-500);">1º Vencimento</label>
+                <input type="date" id="pd_primeiro_vencimento" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:5px 8px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;font-family:inherit;" oninput="updateParcelasPreview()">
+              </div>
+            </div>
+            <div id="pd_parcelas_preview" style="margin-top:10px;"></div>
+            <div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Ao salvar, o sistema lança automaticamente os títulos correspondentes em <strong>Contas a Receber</strong>.</div>
+          </div>` : `
+          <div style="padding:10px 14px;background:var(--primary-bg);border-radius:var(--radius-xs);font-size:12px;color:var(--primary-dark);margin-top:14px;">
+            &#8505; Este pedido já possui Contas a Receber vinculadas (se houver). Para ajustar os títulos financeiros, use a tela <strong>Contas a Receber</strong>.
+          </div>`}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:16px;overflow-y:auto;min-height:0;">
@@ -4926,51 +4979,18 @@ function openPedidoModal(pedidoId) {
               <div style="display:flex;justify-content:space-between;"><span>(&#43;) ICMS</span><strong id="pd_resumo_icms">R$ 0,00</strong></div>
               <div style="display:flex;justify-content:space-between;"><span>(&#43;) IPI</span><strong id="pd_resumo_ipi">R$ 0,00</strong></div>
               <div style="display:flex;justify-content:space-between;"><span>(&#43;) Frete</span><strong id="pd_resumo_frete">R$ 0,00</strong></div>
+              <div style="border-top:1px solid var(--gray-300);padding-top:8px;margin-top:4px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:14px;font-weight:700;color:var(--gray-700);">Total Geral</span>
+                <strong id="pd_valor_total" style="font-size:20px;color:var(--primary);">R$ 0,00</strong>
+              </div>
             </div>
           </div>
-
-          ${!isEdit ? `
-          <div style="padding:14px 16px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-200);">
-            <label style="font-size:13px;font-weight:700;color:var(--gray-700);display:block;margin-bottom:10px;">&#128179; Condi&ccedil;&atilde;o de Pagamento</label>
-            <div style="display:flex;flex-direction:column;gap:10px;">
-              <div class="form-group" style="gap:4px;">
-                <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Forma de Recebimento</label>
-                <select id="pd_forma_receb" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;background:white;">
-                  <option value="DINHEIRO">Dinheiro</option>
-                  <option value="PIX" selected>Pix</option>
-                  <option value="BOLETO">Boleto</option>
-                  <option value="CARTAO">Cartão</option>
-                  <option value="CHEQUE">Cheque</option>
-                  <option value="TRANSFERENCIA">Transferência/TED</option>
-                </select>
-              </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                <div class="form-group" style="gap:4px;">
-                  <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Nº de Parcelas</label>
-                  <input type="number" min="1" max="36" id="pd_parcelas" value="1" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
-                </div>
-                <div class="form-group" style="gap:4px;">
-                  <label style="font-size:11px;font-weight:600;color:var(--gray-500);">Intervalo (dias)</label>
-                  <input type="number" min="1" id="pd_intervalo_parcelas" value="30" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
-                </div>
-              </div>
-              <div class="form-group" style="gap:4px;">
-                <label style="font-size:11px;font-weight:600;color:var(--gray-500);">1º Vencimento</label>
-                <input type="date" id="pd_primeiro_vencimento" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:13px;font-family:inherit;">
-              </div>
-            </div>
-            <div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Ao salvar, o sistema lança automaticamente os títulos correspondentes em <strong>Contas a Receber</strong>.</div>
-          </div>` : `
-          <div style="padding:10px 14px;background:var(--primary-bg);border-radius:var(--radius-xs);font-size:12px;color:var(--primary-dark);">
-            &#8505; Este pedido já possui Contas a Receber vinculadas (se houver). Para ajustar os títulos financeiros, use a tela <strong>Contas a Receber</strong>.
-          </div>`}
         </div>
 
       </div>
     </div>
     <div class="modal-footer" style="border-top:1px solid var(--gray-200);background:var(--gray-50);padding:14px 24px;">
-      <div style="flex:1;font-size:14px;color:var(--gray-700);">Total Geral: <strong id="pd_valor_total" style="font-size:22px;color:var(--primary);">R$ 0,00</strong></div>
-      <div style="display:flex;gap:10px;">
+      <div style="display:flex;gap:10px;margin-left:auto;">
         <button type="button" class="btn btn-ghost" onclick="closePedidoModal()">Cancelar</button>
         <button type="button" class="btn btn-primary" onclick="savePedidoModal()" style="padding:10px 24px;">&#10003; Salvar Pedido</button>
       </div>
@@ -5039,12 +5059,13 @@ function renderPedidoItensBody() {
     const t1 = idx * 3 + 1;
     const t2 = idx * 3 + 2;
     const t3 = idx * 3 + 3;
-    return '<tr style="border-bottom:1px solid var(--gray-100);">' +
-      '<td style="padding:8px 12px;"><select tabindex="' + t1 + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;font-family:inherit;background:white;" onchange="updatePedidoItemField(' + idx + ',\'produto_id\',this.value)">' + prodOptsHtml(it.produto_id) + '</select></td>' +
-      '<td style="padding:8px 12px;"><input type="number" min="0" step="1" tabindex="' + t2 + '" value="' + it.qtd + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;" oninput="updatePedidoItemField(' + idx + ',\'qtd\',this.value)"></td>' +
-      '<td style="padding:8px 12px;"><input type="text" inputmode="decimal" tabindex="' + t3 + '" value="' + formatNumBR(it.valor_unitario) + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(parseNumBR(this.value)); updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))" oninput="updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))"></td>' +
-      '<td id="pedItemTotal_' + idx + '" style="padding:8px 12px;text-align:right;font-weight:700;color:var(--gray-700);font-size:12px;">' + formatBRL(totalItem) + '</td>' +
-      '<td style="padding:8px 12px;text-align:center;"><button type="button" tabindex="-1" onclick="removePedidoItemRow(' + idx + ')" style="background:var(--danger-bg);color:var(--danger);border:none;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;" title="Remover">&times;</button></td>' +
+    const bgColor = idx % 2 === 0 ? 'white' : 'var(--gray-50)';
+    return '<tr style="border-bottom:1px solid var(--gray-200);background:' + bgColor + ';">' +
+      '<td style="padding:5px 8px;border-right:1px solid var(--gray-200);"><select tabindex="' + t1 + '" style="width:100%;padding:5px 6px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;font-family:inherit;background:white;" onchange="updatePedidoItemField(' + idx + ',\'produto_id\',this.value)">' + prodOptsHtml(it.produto_id) + '</select></td>' +
+      '<td style="padding:5px 8px;border-right:1px solid var(--gray-200);"><input type="number" min="0" step="1" tabindex="' + t2 + '" value="' + it.qtd + '" style="width:100%;padding:5px 6px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;text-align:right;font-family:inherit;" oninput="updatePedidoItemField(' + idx + ',\'qtd\',this.value)"></td>' +
+      '<td style="padding:5px 8px;border-right:1px solid var(--gray-200);"><input type="text" inputmode="decimal" tabindex="' + t3 + '" value="' + formatNumBR(it.valor_unitario) + '" style="width:100%;padding:5px 6px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;text-align:right;font-family:inherit;" onfocus="this.value=numToPlainBR(parseNumBR(this.value))" onblur="this.value=formatNumBR(parseNumBR(this.value)); updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))" oninput="updatePedidoItemField(' + idx + ',\'valor_unitario\',parseNumBR(this.value))"></td>' +
+      '<td id="pedItemTotal_' + idx + '" style="padding:5px 8px;text-align:right;font-weight:700;color:var(--gray-700);font-size:12px;border-right:1px solid var(--gray-200);">' + formatBRL(totalItem) + '</td>' +
+      '<td style="padding:5px 6px;text-align:center;"><button type="button" tabindex="-1" onclick="removePedidoItemRow(' + idx + ')" style="background:var(--danger-bg);color:var(--danger);border:none;width:24px;height:24px;border-radius:4px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;justify-content:center;" title="Remover">&times;</button></td>' +
     '</tr>';
   }).join('');
 
@@ -5099,7 +5120,7 @@ function updatePedidoTotal() {
 
   const icmsValor = subtotal * (icmsPct / 100);
   const ipiValor = subtotal * (ipiPct / 100);
-  const totalGeral = subtotal - desconto + icmsValor + ipiValor + frete;
+  const totalGeral = subtotal - desconto + ipiValor + frete;
 
   const setTxt = function(id, val) { const el = document.getElementById(id); if (el) el.textContent = formatBRL(val); };
   setTxt('pd_resumo_subtotal', subtotal);
@@ -5110,6 +5131,59 @@ function updatePedidoTotal() {
 
   const totalEl = document.getElementById('pd_valor_total');
   if (totalEl) totalEl.textContent = formatBRL(totalGeral);
+  updateParcelasPreview();
+}
+
+function updateParcelasPreview() {
+  const previewEl = document.getElementById('pd_parcelas_preview');
+  if (!previewEl) return;
+
+  const parcelasEl = document.getElementById('pd_parcelas');
+  const intervaloEl = document.getElementById('pd_intervalo_parcelas');
+  const vencimentoEl = document.getElementById('pd_primeiro_vencimento');
+  if (!parcelasEl || !intervaloEl || !vencimentoEl) return;
+
+  const numParcelas = parseInt(parcelasEl.value) || 1;
+  const intervalo = parseInt(intervaloEl.value) || 30;
+  const primeiraData = vencimentoEl.value;
+
+  const subtotal = _pedidoItensEdit.reduce(function(s, it) { return s + ((parseFloat(it.qtd) || 0) * (parseFloat(it.valor_unitario) || 0)); }, 0);
+  const descontoEl = document.getElementById('pd_desconto');
+  const ipiPctEl = document.getElementById('pd_ipi_pct');
+  const freteEl = document.getElementById('pd_frete');
+  const desconto = descontoEl ? parseNumBR(descontoEl.value) : 0;
+  const ipiPct = ipiPctEl ? parseNumBR(ipiPctEl.value) : 0;
+  const frete = freteEl ? parseNumBR(freteEl.value) : 0;
+  const ipiValor = subtotal * (ipiPct / 100);
+  const totalGeral = subtotal - desconto + ipiValor + frete;
+  const valorParcela = numParcelas > 0 ? totalGeral / numParcelas : totalGeral;
+
+  if (numParcelas <= 1) {
+    previewEl.innerHTML = '';
+    return;
+  }
+
+  if (!primeiraData) {
+    previewEl.innerHTML = '<div style="font-size:11px;color:var(--gray-400);">Preencha a data do 1º vencimento para visualizar as parcelas.</div>';
+    return;
+  }
+
+  let html = '<div style="border-top:1px dashed var(--gray-300);padding-top:8px;">';
+  html += '<label style="font-size:11px;font-weight:600;color:var(--gray-500);display:block;margin-bottom:5px;">Parcelamento &mdash; ' + numParcelas + 'x de ' + formatBRL(valorParcela) + '</label>';
+  html += '<div style="display:grid;grid-template-columns:repeat(' + Math.min(numParcelas, 5) + ', 1fr);gap:3px;">';
+
+  const baseDate = new Date(primeiraData + 'T12:00:00');
+  for (var i = 0; i < numParcelas; i++) {
+    var venc = new Date(baseDate);
+    venc.setDate(venc.getDate() + (i * intervalo));
+    var vencStr = ('0' + venc.getDate()).slice(-2) + '/' + ('0' + (venc.getMonth() + 1)).slice(-2) + '/' + venc.getFullYear();
+    html += '<div style="display:flex;align-items:center;gap:3px;padding:2px 6px;background:white;border:1px solid var(--gray-200);border-radius:3px;font-size:10.5px;color:var(--gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">';
+    html += '<strong style="color:var(--gray-700);">' + (i + 1) + 'º</strong><span>' + vencStr + '</span><strong style="color:var(--primary);margin-left:auto;font-size:10px;">' + formatBRL(valorParcela) + '</strong>';
+    html += '</div>';
+  }
+
+  html += '</div></div>';
+  previewEl.innerHTML = html;
 }
 
 // Updates only the "total" cell of a row + the grand total, without touching
@@ -5140,17 +5214,22 @@ function updatePedidoItemField(idx, field, value) {
       }
     }
 
-    // Only a produto_id change needs a full re-render (the <select> options
-    // list and the price of that row can change). Re-render just this once
-    // and restore focus to the qty field of the same row.
-    renderPedidoItensBody();
-    setTimeout(function() {
-      var rows = document.querySelectorAll('#pedidoItensBody tr');
-      if (rows[idx]) {
-        var el = rows[idx].querySelectorAll('input')[0];
-        if (el) { el.focus(); el.select && el.select(); }
+    // Update only the price and total cells in-place for this row, preserving
+    // the select element so browser-native type-to-search keeps working.
+    var rows = document.querySelectorAll('#pedidoItensBody tr');
+    if (rows[idx]) {
+      var inputs = rows[idx].querySelectorAll('input');
+      if (inputs[1]) {
+        inputs[1].value = formatNumBR(_pedidoItensEdit[idx].valor_unitario);
       }
-    }, 30);
+      var totalCell = document.getElementById('pedItemTotal_' + idx);
+      if (totalCell) {
+        var t = (parseFloat(_pedidoItensEdit[idx].qtd) || 0) * (parseFloat(_pedidoItensEdit[idx].valor_unitario) || 0);
+        totalCell.textContent = formatBRL(t);
+      }
+    }
+    updatePedidoTotal();
+    updateParcelasPreview();
   } else {
     // qtd / valor_unitario: update the model and just the total cells in
     // place. No innerHTML rebuild, so the field the user is actively typing
@@ -5195,7 +5274,7 @@ function savePedidoModal() {
   const regimeTributario = (document.getElementById('pd_regime_tributario') || {}).value || '';
   const icmsValor = subtotalProdutos * (icmsPct / 100);
   const ipiValor = subtotalProdutos * (ipiPct / 100);
-  const valorFinalPedido = subtotalProdutos - desconto + icmsValor + ipiValor + frete;
+  const valorFinalPedido = subtotalProdutos - desconto + ipiValor + frete;
 
   const pid = pedidoId || uid();
   if (pedidoId) {
