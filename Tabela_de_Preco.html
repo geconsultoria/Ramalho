@@ -345,6 +345,7 @@ tbody tr:last-child td { border-bottom: none; }
 .modal-footer {
   display: flex; align-items: center; justify-content: flex-end; gap: 10px;
   padding: 16px 24px; border-top: 1px solid var(--gray-200); background: var(--gray-50);
+  position: sticky; bottom: 0; z-index: 1;
 }
 
 /* ===== FORM ===== */
@@ -991,9 +992,25 @@ async function sbSave() {
       valor_pago: c.valor_pago || 0,
       status: c.status || 'VENCIDO',
       observacao: c.observacao || '',
+      fidc_operacao_id: c.fidc_operacao_id || '',
       _deleted: c._deleted || false, updated_at: new Date().toISOString()
     }));
-    if (contas.length) await SB.upsert('contas_a_pagar', contas);
+    if (contas.length) {
+      try {
+        await SB.upsert('contas_a_pagar', contas);
+      } catch (e2) {
+        // Coluna fidc_operacao_id pode ainda não existir na tabela contas_a_pagar
+        // (só relevante depois do ALTER TABLE). Tenta de novo sem ela, para não
+        // travar a sincronização de todas as demais contas a pagar.
+        if ((e2.message || '').toLowerCase().includes('fidc_operacao_id')) {
+          const contasSemFidc = contas.map(c => { const { fidc_operacao_id, ...rest } = c; return rest; });
+          await SB.upsert('contas_a_pagar', contasSemFidc);
+          console.warn('Coluna fidc_operacao_id ainda não existe em contas_a_pagar. Rode o ALTER TABLE para habilitar o vínculo com a operação FIDC.');
+        } else {
+          throw e2;
+        }
+      }
+    }
   } catch(e) {
     erros.push('contas_a_pagar');
     console.warn('Supabase save error [contas_a_pagar]:', e.message);
@@ -1178,6 +1195,7 @@ async function sbLoad() {
         data_pagamento: c.data_pagamento, valor_bruto: c.valor_bruto,
         valor_pago: c.valor_pago || 0,
         status: c.status, observacao: c.observacao,
+        fidc_operacao_id: c.fidc_operacao_id || '',
         _deleted: c._deleted
       }));
     }
@@ -1286,6 +1304,13 @@ function getActiveCheques() { return state.cheques.filter(function(c) { return !
 function getActiveOperacoesFidc() { return (state.operacoesFidc || []).filter(function(o) { return !o._deleted; }); }
 function getActiveBancos() { return (state.bancos || []).filter(function(b) { return !b._deleted; }); }
 function getActiveFidcs() { return (state.fidcs || []).filter(function(f) { return !f._deleted; }); }
+// Datalist reutilizável com os bancos cadastrados, para sugerir em qualquer campo "Banco" do sistema.
+function bancosDatalistHtml(datalistId) {
+  return '<datalist id="' + datalistId + '">' + getActiveBancos().map(function(b) { return '<option value="' + escapeHtml(b.nome) + '">'; }).join('') + '</datalist>';
+}
+function fidcsDatalistHtml(datalistId) {
+  return '<datalist id="' + datalistId + '">' + getActiveFidcs().map(function(f) { return '<option value="' + escapeHtml(f.nome) + '">'; }).join('') + '</datalist>';
+}
 
 // Saldo de crédito (adiantamentos) ainda não utilizado de um cliente.
 function getSaldoAdiantamento(clienteId) {
@@ -1576,6 +1601,7 @@ function confirmDialog(title, message, onConfirm) {
 // TAB NAVIGATION
 // ============================================================
 function switchTab(tab) {
+  closeModal();
   if (tab === 'prices') state.selectedClient = null;
   state.currentTab = tab;
   document.querySelectorAll('.nav-item, .side-sub a').forEach(el => el.classList.remove('active'));
@@ -4108,7 +4134,7 @@ function renderBancosFidc(container, actions) {
           </table>
         </div>`}
       </div>
-      ${pagesF > 1 ? `<div class="card-footer"><div class="pagination"><span>Página ${pageF} de ${pagesF}</span><div class="pages">${Array.from({length: pagesF}, (_, i) => `<button class="${i+1===pageF?'active':''}" onclick="state.pagination.fidcs=${i+1};render()">${i+1}</button>`).join('')}</div></div></div>` : ''}
+      ${pagesF > 1 ? `<div class="card-footer" style="padding:8px 16px;"><div class="pagination"><span>Página ${pageF} de ${pagesF}</span><div class="pages">${Array.from({length: pagesF}, (_, i) => `<button class="${i+1===pageF?'active':''}" onclick="state.pagination.fidcs=${i+1};render()">${i+1}</button>`).join('')}</div></div></div>` : ''}
     </div>
   `;
 }
@@ -4605,6 +4631,7 @@ function renderContas(container, actions) {
                     <div class="dropdown-menu" id="dd_${c.id}">
                       <button class="dropdown-item" onclick="showContaForm('${c.id}')">&#9998; Editar</button>
                       <div class="dropdown-divider"></div>
+                      ${c.fidc_operacao_id ? '<button class="dropdown-item" onclick="verOperacaoFidcDaContaPagar(\'' + c.id + '\')">&#127974; Ver Operação FIDC</button><div class="dropdown-divider"></div>' : ''}
                       ${!isAVencer ? '<button class="dropdown-item" onclick="changeContaStatus(\'' + c.id + '\',\'A_VENCER\')"><span class="dot" style="background:var(--info);"></span> A Vencer</button>' : ''}
                       ${!isVencido ? '<button class="dropdown-item" onclick="changeContaStatus(\'' + c.id + '\',\'VENCIDO\')"><span class="dot" style="background:var(--danger);"></span> Vencido</button>' : ''}
                       ${!isPago ? '<button class="dropdown-item" onclick="showPagamentoForm(\'' + c.id + '\',\'PAGO\')"><span class="dot" style="background:var(--success);"></span> Pago</button>' : ''}
@@ -4627,6 +4654,10 @@ function renderContas(container, actions) {
 
 function formatBRL(v) {
   return 'R$ ' + formatNumBR(v);
+}
+// Célula de valor monetário com "R$" alinhado à esquerda e o número à direita.
+function moneyCellHtml(v) {
+  return '<span style="display:flex;justify-content:space-between;gap:6px;"><span style="color:var(--gray-400);">R$</span><span>' + formatNumBR(v) + '</span></span>';
 }
 
 function formatDateBR(iso) {
@@ -6147,13 +6178,17 @@ const statusLabelsReceb = { 'RECEBIDO': 'Recebido', 'RECEBIDO_PARCIALMENTE': 'Pa
 const formaLabels = { 'DINHEIRO': 'Dinheiro', 'PIX': 'Pix', 'BOLETO': 'Boleto', 'CARTAO': 'Cartão', 'CHEQUE': 'Cheque', 'TRANSFERENCIA': 'Transferência', 'ADIANTAMENTO': 'Adiantamento' };
 let _fidcSelecionados = new Set();
 
-function renderContasReceber(container, actions) {
-  actions.innerHTML = `<button class="btn btn-outline" onclick="showOperacoesFidcModal()" style="margin-right:8px;">&#127974; Operações FIDC</button><button class="btn btn-outline" onclick="showRecebimentoAdiantadoForm()" style="margin-right:8px;">&#128176; Recebimento Adiantado</button><button class="btn btn-primary" onclick="showNovoTituloReceberForm()">&#43; Novo Título</button>`;
-
-  const search = (state.search.recebiveis || '').toLowerCase();
-  const statusFilter = state.recebivelStatusFilter;
-  const dateStart = state.recebivelDateStart;
-  const dateEnd = state.recebivelDateEnd;
+// Aplica os mesmos filtros (busca, status, período, FIDC) usados na tela de
+// Contas a Receber — reutilizado tanto na renderização quanto na impressão,
+// para que o relatório impresso sempre reflita exatamente o que está filtrado na tela.
+function getFilteredRecebiveis(overrides) {
+  overrides = overrides || {};
+  const search = (('search' in overrides ? overrides.search : state.search.recebiveis) || '').toLowerCase();
+  const statusFilter = 'status' in overrides ? overrides.status : state.recebivelStatusFilter;
+  const dateStart = 'dateStart' in overrides ? overrides.dateStart : state.recebivelDateStart;
+  const dateEnd = 'dateEnd' in overrides ? overrides.dateEnd : state.recebivelDateEnd;
+  const fidcFilter = 'fidc' in overrides ? overrides.fidc : state.recebivelFidcFilter;
+  const clienteFilter = overrides.clienteId || '';
 
   let filtered = getActiveRecebiveis();
 
@@ -6170,15 +6205,256 @@ function renderContasReceber(container, actions) {
   else if (statusFilter) filtered = filtered.filter(function(c) { return c.status === statusFilter; });
   if (dateStart) filtered = filtered.filter(function(c) { return c.data_vencimento >= dateStart; });
   if (dateEnd) filtered = filtered.filter(function(c) { return c.data_vencimento <= dateEnd; });
-  const fidcFilter = state.recebivelFidcFilter;
   if (fidcFilter) {
     filtered = filtered.filter(function(c) {
       const opFidc = c.fidc_operacao_id ? (state.operacoesFidc || []).find(function(o) { return o.id === c.fidc_operacao_id; }) : null;
       return opFidc && opFidc.fidc_nome === fidcFilter;
     });
   }
+  if (clienteFilter) filtered = filtered.filter(function(c) { return c.cliente_id === clienteFilter; });
+  return filtered.sort(function(a, b) { return (a.data_vencimento || '').localeCompare(b.data_vencimento || ''); });
+}
 
-  filtered = filtered.sort(function(a, b) { return (a.data_vencimento || '').localeCompare(b.data_vencimento || ''); });
+// Modal de opções de impressão: permite escolher período, status e cliente
+// especificamente para o relatório, independente dos filtros aplicados na tela.
+function showImprimirContasReceberModal() {
+  const clientesAtivos = getActiveClients().sort(function(a, b) { return (a.nome || '').localeCompare(b.nome || '', 'pt-BR'); });
+  openModal(`
+    <div class="modal-header"><h3>&#128438; Imprimir Relatório de Contas a Receber</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--gray-500);margin-bottom:14px;">Escolha o período, status e cliente para o relatório. Deixe em branco para incluir todos.</p>
+      <div class="form-grid" style="gap:10px;">
+        <div><div class="form-group" style="gap:3px;"><label>Data Início (Vencimento)</label><input type="date" id="ir_data_ini" value="${state.recebivelDateStart || ''}" style="width:100%;"></div></div>
+        <div><div class="form-group" style="gap:3px;"><label>Data Fim (Vencimento)</label><input type="date" id="ir_data_fim" value="${state.recebivelDateEnd || ''}" style="width:100%;"></div></div>
+        <div class="full"><div class="form-group" style="gap:3px;"><label>Status</label><select id="ir_status" style="width:100%;">
+          <option value="">Todos os status</option>
+          <option value="A_VENCER" ${state.recebivelStatusFilter==='A_VENCER'?'selected':''}>A Vencer</option>
+          <option value="VENCIDO" ${state.recebivelStatusFilter==='VENCIDO'?'selected':''}>Vencido</option>
+          <option value="RECEBIDO" ${state.recebivelStatusFilter==='RECEBIDO'?'selected':''}>Recebido</option>
+          <option value="RECEBIDO_PARCIALMENTE" ${state.recebivelStatusFilter==='RECEBIDO_PARCIALMENTE'?'selected':''}>Parcialmente</option>
+          <option value="DESCONTADO_FIDC" ${state.recebivelStatusFilter==='DESCONTADO_FIDC'?'selected':''}>Descontado FIDC</option>
+          <option value="LIQUIDADO_FIDC" ${state.recebivelStatusFilter==='LIQUIDADO_FIDC'?'selected':''}>Liquidado (FIDC)</option>
+          <option value="ADIANTAMENTO" ${state.recebivelStatusFilter==='ADIANTAMENTO'?'selected':''}>Adiantamento</option>
+          <option value="CANCELADO" ${state.recebivelStatusFilter==='CANCELADO'?'selected':''}>Cancelado</option>
+        </select></div></div>
+        <div class="full"><div class="form-group" style="gap:3px;"><label>Cliente</label><select id="ir_cliente" style="width:100%;">
+          <option value="">Todos os clientes</option>
+          ${clientesAtivos.map(function(c) { return '<option value="' + c.id + '">' + escapeHtml(c.nome) + '</option>'; }).join('')}
+        </select></div></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="confirmarImprimirContasReceber()">&#128438; Gerar Relatório</button>
+    </div>
+  `);
+}
+
+function confirmarImprimirContasReceber() {
+  const dateStart = document.getElementById('ir_data_ini').value;
+  const dateEnd = document.getElementById('ir_data_fim').value;
+  const status = document.getElementById('ir_status').value;
+  const clienteId = document.getElementById('ir_cliente').value;
+  closeModal();
+  printContasReceber({ search: '', status: status, dateStart: dateStart, dateEnd: dateEnd, fidc: '', clienteId: clienteId });
+}
+
+// ============================================================
+// IMPRESSÃO — RELATÓRIO DE CONTAS A RECEBER
+// Modelo padrão financeiro: cabeçalho, resumo por faixa de
+// vencimento (aging), listagem detalhada com subtotais por
+// status e totais gerais. Aceita filtros vindos do modal de opções;
+// se chamado sem parâmetros, usa os filtros aplicados na tela.
+// ============================================================
+function printContasReceber(overrides) {
+  overrides = overrides || {};
+  const filtered = getFilteredRecebiveis(overrides);
+  if (filtered.length === 0) { toast('Nenhum título encontrado para os filtros selecionados', 'error'); return; }
+
+  const hoje = new Date();
+  const hojeISO = hoje.toISOString().slice(0, 10);
+  const agora = hoje.toLocaleDateString('pt-BR') + ' ' + hoje.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+
+  function saldo(c) { return (parseFloat(c.valor_bruto) || 0) - (parseFloat(c.valor_pago) || 0); }
+  function diasVencido(c) {
+    if (!c.data_vencimento) return 0;
+    const d1 = new Date(c.data_vencimento + 'T00:00:00');
+    const d0 = new Date(hojeISO + 'T00:00:00');
+    return Math.round((d0 - d1) / 86400000);
+  }
+
+  // --- Resumo por faixa de vencimento (aging) — só considera saldo em aberto ---
+  const faixas = [
+    { label: 'A Vencer', min: -Infinity, max: -1 },
+    { label: 'Vencido 1-30 dias', min: 0, max: 30 },
+    { label: 'Vencido 31-60 dias', min: 31, max: 60 },
+    { label: 'Vencido 61-90 dias', min: 61, max: 90 },
+    { label: 'Vencido +90 dias', min: 91, max: Infinity },
+  ];
+  const abertos = filtered.filter(function(c) { return saldo(c) > 0.004 && c.status !== 'CANCELADO' && c.status !== 'RECEBIDO'; });
+  const aging = faixas.map(function(f) {
+    const itens = abertos.filter(function(c) { const d = diasVencido(c); return d >= f.min && d <= f.max; });
+    const valor = itens.reduce(function(s, c) { return s + saldo(c); }, 0);
+    return { label: f.label, qtd: itens.length, valor: valor };
+  });
+  const totalAberto = abertos.reduce(function(s, c) { return s + saldo(c); }, 0);
+
+  // --- Totais gerais ---
+  const totalBruto = filtered.reduce(function(s, c) { return s + (parseFloat(c.valor_bruto) || 0); }, 0);
+  const totalRecebido = filtered.reduce(function(s, c) { return s + (parseFloat(c.valor_pago) || 0); }, 0);
+  const totalSaldo = filtered.reduce(function(s, c) { return s + saldo(c); }, 0);
+
+  // --- Filtros aplicados (para exibir no cabeçalho do relatório) ---
+  const efStatus = 'status' in overrides ? overrides.status : state.recebivelStatusFilter;
+  const efSearch = 'search' in overrides ? overrides.search : state.search.recebiveis;
+  const efFidc = 'fidc' in overrides ? overrides.fidc : state.recebivelFidcFilter;
+  const efDateStart = 'dateStart' in overrides ? overrides.dateStart : state.recebivelDateStart;
+  const efDateEnd = 'dateEnd' in overrides ? overrides.dateEnd : state.recebivelDateEnd;
+  const efClienteId = overrides.clienteId || '';
+  const efCliente = efClienteId ? state.clients.find(function(cl) { return cl.id === efClienteId; }) : null;
+
+  const filtrosAtivos = [];
+  if (efSearch) filtrosAtivos.push('Busca: "' + efSearch + '"');
+  if (efStatus) filtrosAtivos.push('Status: ' + (statusLabelsReceb[efStatus] || efStatus));
+  if (efCliente) filtrosAtivos.push('Cliente: ' + efCliente.nome);
+  if (efFidc) filtrosAtivos.push('FIDC: ' + efFidc);
+  if (efDateStart) filtrosAtivos.push('De: ' + formatDateBR(efDateStart));
+  if (efDateEnd) filtrosAtivos.push('Até: ' + formatDateBR(efDateEnd));
+
+  // --- Agrupa por status para exibir com subtotal por grupo (padrão de relatório financeiro) ---
+  const ordemStatus = ['VENCIDO', 'A_VENCER', 'RECEBIDO_PARCIALMENTE', 'DESCONTADO_FIDC', 'LIQUIDADO_FIDC', 'RECEBIDO', 'CANCELADO'];
+  const grupos = ordemStatus.map(function(st) {
+    const itens = filtered.filter(function(c) { return c.status === st; });
+    return { status: st, itens: itens };
+  }).filter(function(g) { return g.itens.length > 0; });
+
+  function linhaTitulo(c) {
+    const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+    const pInfo = extractParcelaInfo(c.titulo);
+    const opFidc = c.fidc_operacao_id ? (state.operacoesFidc || []).find(function(o) { return o.id === c.fidc_operacao_id; }) : null;
+    const d = diasVencido(c);
+    const diasTxt = (c.status === 'VENCIDO' && d > 0) ? d + ' dia' + (d !== 1 ? 's' : '') : '';
+    return '<tr>' +
+      '<td>' + escapeHtml(pInfo.tituloBase) + '</td>' +
+      '<td style="text-align:center;">' + escapeHtml(pInfo.parcela || '-') + '</td>' +
+      '<td>' + escapeHtml(cliente ? cliente.nome : '-') + '</td>' +
+      '<td>' + formatDateBR(c.data_vencimento) + '</td>' +
+      '<td style="text-align:center;color:#dc2626;">' + diasTxt + '</td>' +
+      '<td style="text-align:right;">' + formatNumBR(c.valor_bruto) + '</td>' +
+      '<td style="text-align:right;">' + formatNumBR(c.valor_pago) + '</td>' +
+      '<td style="text-align:right;font-weight:700;">' + formatNumBR(saldo(c)) + '</td>' +
+      '<td>' + escapeHtml(opFidc ? opFidc.fidc_nome : '-') + '</td>' +
+      '</tr>';
+  }
+
+  const gruposHtml = grupos.map(function(g) {
+    const subBruto = g.itens.reduce(function(s, c) { return s + (parseFloat(c.valor_bruto) || 0); }, 0);
+    const subRecebido = g.itens.reduce(function(s, c) { return s + (parseFloat(c.valor_pago) || 0); }, 0);
+    const subSaldo = g.itens.reduce(function(s, c) { return s + saldo(c); }, 0);
+    return '<tr class="group-row"><td colspan="9">' + (statusLabelsReceb[g.status] || g.status) + ' <span class="count">(' + g.itens.length + ')</span></td></tr>' +
+      g.itens.map(linhaTitulo).join('') +
+      '<tr class="subtotal-row"><td colspan="5">Subtotal ' + (statusLabelsReceb[g.status] || g.status) + '</td>' +
+      '<td style="text-align:right;">' + formatNumBR(subBruto) + '</td>' +
+      '<td style="text-align:right;">' + formatNumBR(subRecebido) + '</td>' +
+      '<td style="text-align:right;">' + formatNumBR(subSaldo) + '</td><td></td></tr>';
+  }).join('');
+
+  const agingHtml = aging.map(function(a) {
+    return '<tr><td>' + a.label + '</td><td style="text-align:center;">' + a.qtd + '</td><td style="text-align:right;">' + formatNumBR(a.valor) + '</td>' +
+      '<td style="text-align:right;color:#64748b;">' + (totalAberto > 0 ? ((a.valor / totalAberto) * 100).toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%' : '0%') + '</td></tr>';
+  }).join('');
+
+  const printHtml = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">' +
+    '<title>Relatório de Contas a Receber</title>' +
+    '<style>' +
+      '*{margin:0;padding:0;box-sizing:border-box;}' +
+      'body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;padding:32px;font-size:12px;}' +
+      '.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #4f46e5;padding-bottom:14px;margin-bottom:16px;}' +
+      '.header h1{font-size:20px;color:#4f46e5;}' +
+      '.header .sub{font-size:11px;color:#64748b;margin-top:2px;}' +
+      '.header .meta{font-size:11px;color:#64748b;text-align:right;}' +
+      '.filtros{font-size:10px;color:#64748b;margin-bottom:14px;}' +
+      '.filtros strong{color:#334155;}' +
+      '.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;}' +
+      '.summary-card{border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;background:#f8fafc;}' +
+      '.summary-card .label{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;}' +
+      '.summary-card .val{font-size:16px;font-weight:700;}' +
+      '.summary-card.saldo .val{color:#dc2626;}' +
+      '.summary-card.recebido .val{color:#16a34a;}' +
+      'h2.section-title{font-size:12px;color:#334155;text-transform:uppercase;letter-spacing:0.4px;margin:18px 0 8px;padding-bottom:4px;border-bottom:1px solid #e2e8f0;}' +
+      'table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:6px;}' +
+      'thead th{text-align:left;padding:6px 8px;background:#4f46e5;color:white;font-size:9.5px;text-transform:uppercase;letter-spacing:0.3px;}' +
+      'tbody td{padding:5px 8px;border-bottom:1px solid #e2e8f0;}' +
+      'tbody tr.group-row td{background:#eef2ff;font-weight:700;color:#4338ca;padding:6px 8px;font-size:10.5px;}' +
+      'tbody tr.group-row .count{font-weight:400;color:#6366f1;}' +
+      'tbody tr.subtotal-row td{background:#f8fafc;font-weight:700;border-top:1px solid #cbd5e1;border-bottom:2px solid #cbd5e1;}' +
+      '.aging-table thead th{background:#334155;}' +
+      '.grand-total{margin-top:10px;display:flex;justify-content:flex-end;}' +
+      '.grand-total table{width:320px;}' +
+      '.grand-total td{padding:6px 10px;font-size:11.5px;}' +
+      '.grand-total .lbl{color:#475569;}' +
+      '.grand-total .final td{border-top:2px solid #4f46e5;font-weight:700;font-size:13px;color:#4f46e5;}' +
+      '.footer{margin-top:26px;font-size:9.5px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:10px;}' +
+      '.assinaturas{display:flex;justify-content:space-between;margin-top:50px;}' +
+      '.assinaturas .linha{width:220px;border-top:1px solid #334155;text-align:center;font-size:10px;color:#475569;padding-top:6px;}' +
+      '@media print{body{padding:12px;} .no-print{display:none;} .group-row, .subtotal-row{break-inside:avoid;}}' +
+    '</style></head><body>' +
+    '<div class="header">' +
+      '<div><h1>&#128179; Relatório de Contas a Receber</h1><div class="sub">Posição consolidada de títulos a receber</div></div>' +
+      '<div class="meta">Emitido em<br>' + agora + '</div>' +
+    '</div>' +
+    (filtrosAtivos.length ? '<div class="filtros"><strong>Filtros aplicados:</strong> ' + filtrosAtivos.map(escapeHtml).join(' &nbsp;|&nbsp; ') + '</div>' : '') +
+
+    '<div class="summary-grid">' +
+      '<div class="summary-card"><div class="label">Valor Bruto Total</div><div class="val">R$ ' + formatNumBR(totalBruto) + '</div></div>' +
+      '<div class="summary-card recebido"><div class="label">Total Recebido</div><div class="val">R$ ' + formatNumBR(totalRecebido) + '</div></div>' +
+      '<div class="summary-card saldo"><div class="label">Saldo em Aberto</div><div class="val">R$ ' + formatNumBR(totalSaldo) + '</div></div>' +
+      '<div class="summary-card"><div class="label">Qtd. de Títulos</div><div class="val">' + filtered.length + '</div></div>' +
+    '</div>' +
+
+    '<h2 class="section-title">Resumo por Vencimento (Aging) &mdash; Saldo em Aberto</h2>' +
+    '<table class="aging-table"><thead><tr><th>Faixa</th><th style="text-align:center;">Qtd.</th><th style="text-align:right;">Valor (R$)</th><th style="text-align:right;">% do Total</th></tr></thead>' +
+    '<tbody>' + agingHtml + '</tbody></table>' +
+
+    '<h2 class="section-title">Detalhamento por Status</h2>' +
+    '<table><thead><tr><th>Título</th><th style="text-align:center;">Parcela</th><th>Cliente</th><th>Vencimento</th><th style="text-align:center;">Dias Venc.</th><th style="text-align:right;">Valor Bruto</th><th style="text-align:right;">Recebido</th><th style="text-align:right;">Saldo</th><th>FIDC</th></tr></thead>' +
+    '<tbody>' + gruposHtml + '</tbody></table>' +
+
+    '<div class="grand-total"><table>' +
+      '<tr><td class="lbl">Valor Bruto Total</td><td style="text-align:right;">R$ ' + formatNumBR(totalBruto) + '</td></tr>' +
+      '<tr><td class="lbl">(&minus;) Total Recebido</td><td style="text-align:right;">R$ ' + formatNumBR(totalRecebido) + '</td></tr>' +
+      '<tr class="final"><td>Saldo em Aberto</td><td style="text-align:right;">R$ ' + formatNumBR(totalSaldo) + '</td></tr>' +
+    '</table></div>' +
+
+    '<div class="assinaturas">' +
+      '<div class="linha">Responsável Financeiro</div>' +
+      '<div class="linha">Conferido por</div>' +
+    '</div>' +
+
+    '<div class="footer">Relatório gerado automaticamente pelo sistema &mdash; ' + filtered.length + ' título(s) listado(s)</div>' +
+    '</body></html>';
+
+  const printWindow = window.open('', '_blank', 'width=1000,height=750');
+  if (!printWindow) { toast('Permita pop-ups para imprimir', 'error'); return; }
+  printWindow.document.open();
+  printWindow.document.write(printHtml);
+  printWindow.document.close();
+  printWindow.onload = function() {
+    printWindow.focus();
+    printWindow.print();
+  };
+}
+
+function renderContasReceber(container, actions) {
+  actions.innerHTML = `<button class="btn btn-outline" onclick="showImprimirContasReceberModal()" style="margin-right:8px;">&#128438; Imprimir</button><button class="btn btn-outline" onclick="showOperacoesFidcModal()" style="margin-right:8px;">&#127974; Operações FIDC</button><button class="btn btn-outline" onclick="showAdiantamentosModal()" style="margin-right:8px;">&#128176; Adiantamentos</button><button class="btn btn-primary" onclick="showNovoTituloReceberForm()">&#43; Novo Título</button>`;
+
+  const search = (state.search.recebiveis || '').toLowerCase();
+  const statusFilter = state.recebivelStatusFilter;
+  const dateStart = state.recebivelDateStart;
+  const dateEnd = state.recebivelDateEnd;
+  const fidcFilter = state.recebivelFidcFilter;
+
+  let filtered = getFilteredRecebiveis();
 
   const total = filtered.length;
   const totalGeral = filtered.reduce(function(s, c) { return s + (parseFloat(c.valor_bruto) || 0); }, 0);
@@ -6451,7 +6727,7 @@ function showEnviarFidcForm() {
       </div>
       <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary">Confirmar Operação</button></div>
     </form>
-  `);
+  `, 'wide');
   setTimeout(function() { var el = document.getElementById('fd_nome'); if (el) el.focus(); }, 50);
 }
 
@@ -6510,7 +6786,18 @@ function verOperacaoFidcDoTitulo(contaId) {
   document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
   const conta = state.contasAReceber.find(function(c) { return c.id === contaId; });
   if (!conta || !conta.fidc_operacao_id) return;
-  showOperacoesFidcModal(conta.fidc_operacao_id);
+  showOperacoesFidcModal(conta.fidc_operacao_id, '', conta.fidc_operacao_id);
+}
+
+// Mesma ideia, mas a partir de uma Conta a Pagar gerada por recompra/chargeback
+// de um título descontado junto à FIDC — permite voltar à operação original.
+function verOperacaoFidcDaContaPagar(contaPagarId) {
+  document.querySelectorAll('.dropdown-menu.open').forEach(function(el) { el.classList.remove('open'); });
+  const conta = state.contasAPagar.find(function(c) { return c.id === contaPagarId; });
+  if (!conta || !conta.fidc_operacao_id) { toast('Operação FIDC de origem não encontrada.', 'error'); return; }
+  const op = (state.operacoesFidc || []).find(function(o) { return o.id === conta.fidc_operacao_id; });
+  if (!op) { toast('A operação FIDC de origem não foi encontrada (pode ter sido excluída).', 'error'); return; }
+  showOperacoesFidcModal(conta.fidc_operacao_id, '', conta.fidc_operacao_id);
 }
 
 // Confirma que o sacado (cliente devedor) pagou diretamente ao FIDC — o
@@ -6584,7 +6871,8 @@ function saveRecompraFidc(event, contaId) {
   state.contasAPagar.push({
     id: uid(), titulo: 'RECOMPRA FIDC - ' + (conta.titulo || ''), fornecedor_id: fornecedor.id,
     data_vencimento: vencimento, data_pagamento: '', valor_bruto: valor, valor_pago: 0,
-    status: calcStatus(vencimento, ''), observacao: obs
+    status: calcStatus(vencimento, ''), observacao: obs,
+    fidc_operacao_id: conta.fidc_operacao_id || ''
   });
 
   // Reabre o título para cobrança normal do cliente.
@@ -6609,7 +6897,7 @@ function atualizaStatusOperacaoFidc(opId) {
   if (todosLiquidados) op.status = 'LIQUIDADA';
 }
 
-function showOperacoesFidcModal(highlightOpId, searchTerm) {
+function showOperacoesFidcModal(highlightOpId, searchTerm, expandedId) {
   const search = (searchTerm || '').toLowerCase();
   let ops = getActiveOperacoesFidc().sort(function(a, b) { return (b.data_operacao || '').localeCompare(a.data_operacao || ''); });
   if (search) {
@@ -6617,37 +6905,86 @@ function showOperacoesFidcModal(highlightOpId, searchTerm) {
   }
   openModal(`
     <div class="modal-header"><h3>&#127974; Operações de Desconto FIDC</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
-      <div class="search-box" style="margin-bottom:14px;">
+    <div class="modal-body" style="overflow-y:auto;">
+      <div class="search-box" style="margin-bottom:14px;max-width:360px;">
         <span class="icon">&#128270;</span>
-        <input type="text" id="sOpFidc" placeholder="Buscar por nome da FIDC..." value="${escapeHtml(searchTerm || '')}" oninput="showOperacoesFidcModal('${highlightOpId || ''}', this.value)">
+        <input type="text" id="sOpFidc" placeholder="Buscar por nome da FIDC..." value="${escapeHtml(searchTerm || '')}" oninput="showOperacoesFidcModal('${highlightOpId || ''}', this.value, '${expandedId || ''}')">
       </div>
-      ${ops.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--gray-400);font-size:13px;">' + (search ? 'Nenhuma operação encontrada para "' + escapeHtml(searchTerm) + '".' : 'Nenhuma operação registrada ainda. Selecione títulos em Contas a Receber e clique em "Enviar para Desconto FIDC".') + '</div>' : ''}
-      ${ops.map(function(op) {
-        const titulosDaOp = getActiveRecebiveis().filter(function(c) { return c.fidc_operacao_id === op.id; });
-        const statusClass = fidcOpStatusColors[op.status] || 'badge-info';
-        return `<div style="border:1px solid ${op.id===highlightOpId?'var(--primary)':'var(--gray-200)'};border-radius:var(--radius);padding:14px;margin-bottom:12px;${op.id===highlightOpId?'background:var(--primary-bg);':''}">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <div><strong style="font-size:14px;">${escapeHtml(op.fidc_nome)}</strong><div style="font-size:11px;color:var(--gray-500);">${formatDateBR(op.data_operacao)}</div></div>
-            <span class="badge ${statusClass}">${fidcOpStatusLabels[op.status] || op.status}</span>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;margin-bottom:10px;">
-            <div>Valor Face: <strong>${formatBRL(op.valor_face)}</strong></div>
-            <div>Taxa: <strong>${(parseFloat(op.taxa_desconto)||0).toLocaleString('pt-BR')}%</strong></div>
-            <div>Líquido: <strong>${formatBRL(op.valor_liquido)}</strong></div>
-          </div>
-          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">${titulosDaOp.length} título(s):</div>
-          ${titulosDaOp.map(function(c) {
-            const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
-            const pInfo = extractParcelaInfo(c.titulo);
-            return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--gray-100);"><span>' + escapeHtml(pInfo.tituloBase) + (pInfo.parcela ? ' <span style="color:var(--gray-400);">(' + pInfo.parcela + ')</span>' : '') + ' &mdash; ' + escapeHtml(cliente?cliente.nome:'') + '</span><span class="badge ' + (statusColorsReceb[c.status]||'badge-info') + '" style="font-size:9px;">' + (statusLabelsReceb[c.status]||c.status) + '</span></div>';
-          }).join('')}
-          ${op.observacao ? '<div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Obs: ' + escapeHtml(op.observacao) + '</div>' : ''}
-        </div>`;
-      }).join('')}
+      ${ops.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--gray-400);font-size:13px;">' + (search ? 'Nenhuma operação encontrada para "' + escapeHtml(searchTerm) + '".' : 'Nenhuma operação registrada ainda. Selecione títulos em Contas a Receber e clique em "Enviar para Desconto FIDC".') + '</div>' : `
+      <div class="table-wrap">
+        <table class="table-compact">
+          <thead>
+            <tr>
+              <th>FIDC</th>
+              <th>Nº Títulos</th>
+              <th>Parcela</th>
+              <th>Cliente</th>
+              <th>Data Desconto</th>
+              <th style="text-align:right;">Valor Face</th>
+              <th style="text-align:right;">Taxa</th>
+              <th style="text-align:right;">Valor Desconto</th>
+              <th style="text-align:right;">Valor Líquido</th>
+              <th style="text-align:center;">Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${ops.map(function(op) {
+              // Usa a lista original de títulos vinculados à operação (contas_ids),
+              // buscando em TODOS os lançamentos (mesmo excluídos/recomprados depois),
+              // para que a operação sempre mostre os títulos que a originaram.
+              const idsDaOp = op.contas_ids || [];
+              let titulosDaOp = idsDaOp.map(function(cid) { return state.contasAReceber.find(function(c) { return c.id === cid; }); }).filter(Boolean);
+              if (titulosDaOp.length === 0) {
+                // Fallback para operações antigas sem contas_ids salvo: usa o vínculo reverso.
+                titulosDaOp = state.contasAReceber.filter(function(c) { return c.fidc_operacao_id === op.id; });
+              }
+              const statusClass = fidcOpStatusColors[op.status] || 'badge-info';
+              const isExpanded = op.id === expandedId;
+              const isHighlight = op.id === highlightOpId;
+              const numerosTitulos = titulosDaOp.map(function(c) { return extractParcelaInfo(c.titulo).tituloBase; });
+              const parcelasTitulos = titulosDaOp.map(function(c) { return extractParcelaInfo(c.titulo).parcela; }).filter(Boolean);
+              const nomesClientes = Array.from(new Set(titulosDaOp.map(function(c) {
+                const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+                return cliente ? cliente.nome : '';
+              }).filter(Boolean)));
+              const LIMITE = 2;
+              const titulosResumo = numerosTitulos.length <= LIMITE ? numerosTitulos.join(', ') : (numerosTitulos.slice(0, LIMITE).join(', ') + ' +' + (numerosTitulos.length - LIMITE));
+              const parcelasResumo = parcelasTitulos.length === 0 ? '-' : (parcelasTitulos.length <= LIMITE ? parcelasTitulos.join(', ') : (parcelasTitulos.slice(0, LIMITE).join(', ') + ' +' + (parcelasTitulos.length - LIMITE)));
+              const clientesResumo = nomesClientes.length <= LIMITE ? nomesClientes.join(', ') : (nomesClientes.slice(0, LIMITE).join(', ') + ' +' + (nomesClientes.length - LIMITE));
+              let rows = `<tr style="${isHighlight ? 'background:var(--primary-bg);' : ''}cursor:pointer;" onclick="showOperacoesFidcModal('${highlightOpId || ''}', document.getElementById('sOpFidc') ? document.getElementById('sOpFidc').value : '', '${isExpanded ? '' : op.id}')">
+                <td><strong>${escapeHtml(op.fidc_nome)}</strong></td>
+                <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(numerosTitulos.join(', '))}">${escapeHtml(titulosResumo)} <span style="color:var(--gray-400);font-size:10px;">(${titulosDaOp.length})</span></td>
+                <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(parcelasTitulos.join(', '))}">${escapeHtml(parcelasResumo)}</td>
+                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(nomesClientes.join(', '))}">${escapeHtml(clientesResumo)}</td>
+                <td style="white-space:nowrap;">${formatDateBR(op.data_operacao)}</td>
+                <td style="white-space:nowrap;">${moneyCellHtml(op.valor_face)}</td>
+                <td style="text-align:right;white-space:nowrap;">${(parseFloat(op.taxa_desconto)||0).toLocaleString('pt-BR')}%</td>
+                <td style="white-space:nowrap;">${moneyCellHtml(op.valor_desconto)}</td>
+                <td style="white-space:nowrap;font-weight:600;">${moneyCellHtml(op.valor_liquido)}</td>
+                <td style="text-align:center;"><span class="badge ${statusClass}" style="font-size:9px;">${fidcOpStatusLabels[op.status] || op.status}</span></td>
+                <td style="text-align:center;font-size:11px;color:var(--gray-400);">${isExpanded ? '&#9650;' : '&#9660;'}</td>
+              </tr>`;
+              if (isExpanded) {
+                rows += `<tr><td colspan="11" style="background:var(--gray-50);padding:10px 16px;">
+                  <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;">${titulosDaOp.length} título(s) nesta operação:</div>
+                  ${titulosDaOp.map(function(c) {
+                    const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+                    const pInfo = extractParcelaInfo(c.titulo);
+                    const excluido = !!c._deleted;
+                    return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--gray-200);' + (excluido ? 'opacity:0.55;' : '') + '"><span>' + escapeHtml(pInfo.tituloBase) + (pInfo.parcela ? ' <span style="color:var(--gray-400);">(' + pInfo.parcela + ')</span>' : '') + ' &mdash; ' + escapeHtml(cliente?cliente.nome:'') + '</span><span class="badge ' + (excluido ? 'badge-secondary' : (statusColorsReceb[c.status]||'badge-info')) + '" style="font-size:9px;">' + (excluido ? 'Excluído' : (statusLabelsReceb[c.status]||c.status)) + '</span></div>';
+                  }).join('')}
+                  ${op.observacao ? '<div style="font-size:11px;color:var(--gray-500);margin-top:8px;">Obs: ' + escapeHtml(op.observacao) + '</div>' : ''}
+                </td></tr>`;
+              }
+              return rows;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`}
     </div>
     <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
-  `);
+  `, 'fullscreen', true);
   setTimeout(function() {
     var el = document.getElementById('sOpFidc');
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
@@ -6790,7 +7127,7 @@ function showRecebimentoForm(id, target) {
             <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:8px;">Dados do Cheque</div>
             <div class="form-grid" style="gap:8px;">
               <div><div class="form-group" style="gap:3px;"><label>Nº do Cheque</label><input type="text" id="rc_ch_numero" style="width:100%;"></div></div>
-              <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="rc_ch_banco" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="rc_ch_banco" list="dl_bancos_rc" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div>${bancosDatalistHtml('dl_bancos_rc')}</div>
               <div><div class="form-group" style="gap:3px;"><label>Agência</label><input type="text" id="rc_ch_agencia" style="width:100%;"></div></div>
               <div><div class="form-group" style="gap:3px;"><label>Conta</label><input type="text" id="rc_ch_conta" style="width:100%;"></div></div>
               <div><div class="form-group" style="gap:3px;"><label>Emitente</label><input type="text" id="rc_ch_emitente" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
@@ -6877,12 +7214,104 @@ function saveRecebimento(event, id, target) {
 }
 
 // ===== Recebimento Adiantado (gera crédito para o cliente) =====
-function showRecebimentoAdiantadoForm() {
+// ============================================================
+// ADIANTAMENTOS DE CLIENTES
+// Mesmo padrão da tela "Operações de Desconto FIDC": modal
+// fullscreen com botão de cadastro + grid de todos os lançamentos.
+// ============================================================
+function showAdiantamentosModal(searchTerm) {
+  const search = (searchTerm || '').toLowerCase();
+  let adiantamentos = getActiveRecebiveis().filter(function(c) { return c.tipo === 'ADIANTAMENTO'; })
+    .sort(function(a, b) { return (b.data_recebimento || '').localeCompare(a.data_recebimento || ''); });
+  if (search) {
+    adiantamentos = adiantamentos.filter(function(c) {
+      const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+      return cliente && (cliente.nome || '').toLowerCase().includes(search);
+    });
+  }
+
+  const totalRecebido = adiantamentos.reduce(function(s, c) { return s + (parseFloat(c.valor_bruto) || 0); }, 0);
+  const totalUtilizado = adiantamentos.reduce(function(s, c) { return s + (parseFloat(c.valor_utilizado) || 0); }, 0);
+  const totalDisponivel = adiantamentos.reduce(function(s, c) { return s + Math.max(0, (parseFloat(c.valor_bruto) || 0) - (parseFloat(c.valor_utilizado) || 0)); }, 0);
+
+  openModal(`
+    <div class="modal-header"><h3>&#128176; Adiantamentos de Clientes</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="overflow-y:auto;">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div class="search-box" style="max-width:320px;">
+          <span class="icon">&#128270;</span>
+          <input type="text" id="sAdiant" placeholder="Buscar por cliente..." value="${escapeHtml(searchTerm || '')}" oninput="showAdiantamentosModal(this.value)">
+        </div>
+        <button class="btn btn-primary" onclick="showRecebimentoAdiantadoForm(true)">&#43; Novo Adiantamento</button>
+      </div>
+
+      <div class="summary-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+        <div style="border:1px solid var(--gray-200);border-radius:var(--radius);padding:10px 14px;background:var(--gray-50);">
+          <div style="font-size:10px;color:var(--gray-500);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Total Recebido</div>
+          <div style="font-size:17px;font-weight:700;">${formatBRL(totalRecebido)}</div>
+        </div>
+        <div style="border:1px solid var(--gray-200);border-radius:var(--radius);padding:10px 14px;background:var(--gray-50);">
+          <div style="font-size:10px;color:var(--gray-500);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Total Utilizado</div>
+          <div style="font-size:17px;font-weight:700;color:var(--gray-600);">${formatBRL(totalUtilizado)}</div>
+        </div>
+        <div style="border:1px solid var(--gray-200);border-radius:var(--radius);padding:10px 14px;background:var(--success-bg);">
+          <div style="font-size:10px;color:var(--gray-500);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Saldo Disponível (Crédito)</div>
+          <div style="font-size:17px;font-weight:700;color:var(--success);">${formatBRL(totalDisponivel)}</div>
+        </div>
+      </div>
+
+      ${adiantamentos.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--gray-400);font-size:13px;">' + (search ? 'Nenhum adiantamento encontrado para "' + escapeHtml(searchTerm) + '".' : 'Nenhum adiantamento registrado ainda. Clique em "+ Novo Adiantamento" para lançar o primeiro.') + '</div>' : `
+      <div class="table-wrap">
+        <table class="table-compact">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Data</th>
+              <th>Forma</th>
+              <th style="text-align:right;">Valor Recebido</th>
+              <th style="text-align:right;">Utilizado</th>
+              <th style="text-align:right;">Saldo Disponível</th>
+              <th style="text-align:center;">Status</th>
+              <th style="text-align:right;">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${adiantamentos.map(function(c) {
+              const cliente = state.clients.find(function(cl) { return cl.id === c.cliente_id; });
+              const saldo = Math.max(0, (parseFloat(c.valor_bruto) || 0) - (parseFloat(c.valor_utilizado) || 0));
+              const utilizado = parseFloat(c.valor_utilizado) || 0;
+              const totalmenteUsado = saldo <= 0.004;
+              return `<tr>
+                <td><strong>${escapeHtml(cliente ? cliente.nome : '-')}</strong></td>
+                <td style="white-space:nowrap;">${formatDateBR(c.data_recebimento)}</td>
+                <td style="white-space:nowrap;">${formaLabels[c.forma_recebimento] || c.forma_recebimento || '-'}</td>
+                <td style="white-space:nowrap;">${moneyCellHtml(c.valor_bruto)}</td>
+                <td style="white-space:nowrap;color:var(--gray-500);">${moneyCellHtml(utilizado)}</td>
+                <td style="white-space:nowrap;font-weight:600;${saldo > 0 ? 'color:var(--success);' : ''}">${moneyCellHtml(saldo)}</td>
+                <td style="text-align:center;"><span class="badge ${totalmenteUsado ? 'badge-secondary' : 'badge-success'}" style="font-size:9px;">${totalmenteUsado ? 'Totalmente Utilizado' : 'Com Saldo'}</span></td>
+                <td style="text-align:right;white-space:nowrap;">
+                  <button class="btn-icon delete" onclick="deleteRecebivel('${c.id}')" title="Excluir">&#128465;</button>
+                </td>
+              </tr>${c.observacao ? '<tr><td colspan="8" style="padding:2px 8px 8px;color:var(--gray-500);font-size:10.5px;">Obs: ' + escapeHtml(c.observacao) + '</td></tr>' : ''}`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `, 'fullscreen', true);
+  setTimeout(function() {
+    var el = document.getElementById('sAdiant');
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 10);
+}
+
+function showRecebimentoAdiantadoForm(voltarParaGrid) {
   const clientesAtivos = getActiveClients().sort(function(a, b) { return (a.nome || '').localeCompare(b.nome || '', 'pt-BR'); });
   const clienteOpts = '<option value="">Selecione</option>' + clientesAtivos.map(function(c) { return '<option value="' + c.id + '">' + escapeHtml(c.nome) + '</option>'; }).join('');
   openModal(`
     <div class="modal-header"><h3>&#128176; Recebimento Adiantado</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
-    <form onsubmit="saveRecebimentoAdiantado(event)">
+    <form onsubmit="saveRecebimentoAdiantado(event, ${voltarParaGrid ? 'true' : 'false'})">
       <div class="modal-body">
         <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px;">O valor recebido ficará como crédito do cliente, disponível para abater em futuras Contas a Receber (forma "Adiantamento").</div>
         <div class="form-grid" style="gap:10px;">
@@ -6899,7 +7328,7 @@ function showRecebimentoAdiantadoForm() {
             <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:8px;">Dados do Cheque</div>
             <div class="form-grid" style="gap:8px;">
               <div><div class="form-group" style="gap:3px;"><label>Nº do Cheque</label><input type="text" id="ad_ch_numero" style="width:100%;"></div></div>
-              <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="ad_ch_banco" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+              <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="ad_ch_banco" list="dl_bancos_ad" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div>${bancosDatalistHtml('dl_bancos_ad')}</div>
               <div><div class="form-group" style="gap:3px;"><label>Agência</label><input type="text" id="ad_ch_agencia" style="width:100%;"></div></div>
               <div><div class="form-group" style="gap:3px;"><label>Conta</label><input type="text" id="ad_ch_conta" style="width:100%;"></div></div>
               <div><div class="form-group" style="gap:3px;"><label>Emitente</label><input type="text" id="ad_ch_emitente" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
@@ -6922,7 +7351,7 @@ function toggleCampoChequeAdiant() {
   if (wrap) wrap.style.display = forma === 'CHEQUE' ? 'block' : 'none';
 }
 
-function saveRecebimentoAdiantado(event) {
+function saveRecebimentoAdiantado(event, voltarParaGrid) {
   event.preventDefault();
   const cliente_id = document.getElementById('ad_cliente').value;
   const data = document.getElementById('ad_data').value;
@@ -6960,8 +7389,8 @@ function saveRecebimentoAdiantado(event) {
   });
 
   saveState();
-  closeModal();
   render();
+  if (voltarParaGrid) { showAdiantamentosModal(); } else { closeModal(); }
   toast('Recebimento adiantado registrado! Crédito disponível para o cliente.');
 }
 
@@ -7121,7 +7550,7 @@ function showChequeForm(id) {
       <div class="modal-body">
         <div class="form-grid" style="gap:10px;">
           <div><div class="form-group" style="gap:3px;"><label>Nº do Cheque</label><input type="text" id="ec_numero" value="${(ch.numero_cheque||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
-          <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="ec_banco" value="${(ch.banco||'').replace(/"/g,'&quot;')}" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
+          <div><div class="form-group" style="gap:3px;"><label>Banco</label><input type="text" id="ec_banco" list="dl_bancos_ec" value="${(ch.banco||'').replace(/"/g,'&quot;')}" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div>${bancosDatalistHtml('dl_bancos_ec')}</div>
           <div><div class="form-group" style="gap:3px;"><label>Agência</label><input type="text" id="ec_agencia" value="${(ch.agencia||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Conta</label><input type="text" id="ec_conta" value="${(ch.conta||'').replace(/"/g,'&quot;')}" style="width:100%;"></div></div>
           <div><div class="form-group" style="gap:3px;"><label>Emitente</label><input type="text" id="ec_emitente" value="${(ch.emitente||'').replace(/"/g,'&quot;')}" style="width:100%;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div></div>
